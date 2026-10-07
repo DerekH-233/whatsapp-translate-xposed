@@ -21,9 +21,9 @@
 
 ## 截图
 
-![聊天效果](docs/screenshot-chat.jpg)
+左侧为翻译效果，右侧为设置界面。
 
-![设置页](docs/screenshot-settings.jpg)
+![翻译效果与设置界面](docs/preview.jpg)
 
 ---
 
@@ -191,7 +191,6 @@ tools/
   gen_locale_data.py         生成语言与区号表
   make_icon.py               生成图标
   check_secrets.py           提交前扫描密钥
-  redact_screenshot.py       截图脱敏
   lsp_enable.py              辅助启用模块
 build.ps1, repack.py         构建脚本
 ```
