@@ -1,13 +1,28 @@
 package com.littlesauce.watrans;
 
-import de.robv.android.xposed.XposedBridge;
+import android.util.Log;
 
-/** Thin logging wrapper so verbosity is controlled by a single pref. */
+import io.github.libxposed.api.XposedModule;
+
+/**
+ * Thin logging wrapper so verbosity is controlled by a single pref.
+ *
+ * <p>Inside a hooked process the messages go to the Xposed log through the
+ * modern {@link XposedModule#log} API. In the module's own process (settings
+ * UI, data-table loading) they fall back to logcat, since no framework
+ * interface is attached there.</p>
+ */
 public final class Logger {
 
-    private static final String TAG = "[LSTrans]";
+    private static final String TAG = "LSTrans";
+
+    private static volatile XposedModule module;
 
     private Logger() {
+    }
+
+    static void attach(XposedModule m) {
+        module = m;
     }
 
     public static boolean on() {
@@ -20,21 +35,26 @@ public final class Logger {
 
     public static void d(String msg) {
         if (on()) {
-            safe(TAG + " " + msg);
+            emit(Log.DEBUG, msg);
         }
     }
 
     /** Errors and HTTP failures are always logged - they are what you need
      *  when a translation silently doesn't show up. */
     public static void w(String msg) {
-        safe(TAG + " " + msg);
+        emit(Log.WARN, msg);
     }
 
-    private static void safe(String msg) {
+    private static void emit(int priority, String msg) {
+        XposedModule m = module;
         try {
-            XposedBridge.log(msg);
+            if (m != null) {
+                m.log(priority, TAG, msg);
+            } else {
+                Log.println(priority, TAG, msg);
+            }
         } catch (Throwable ignored) {
-            // not running inside the framework (e.g. settings UI)
+            // never let logging break the hook
         }
     }
 }

@@ -14,23 +14,34 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="WhatsApp 翻译助手"
+        android:label="@string/app_name"
+        android:description="@string/module_description"
         android:supportsRtl="true">
 
-        <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="WhatsApp 聊天翻译：把对方发来的消息翻译成你设定的语言，译文以小字显示在原文下方，颜色和字号可自定义。支持 Google / Bing / MyMemory 等公开接口，也支持填入自己的 AI 接口。" />
-        <meta-data android:name="xposedminversion" android:value="93" />
-        <meta-data android:name="xposedsharedprefs" android:value="true" />
+        <!--
+          Modern Xposed modules are discovered through META-INF/xposed/* rather
+          than meta-data. This provider is how the framework hands the module's
+          settings UI a service binder, which is what carries setting changes to
+          the hooked process. The authority must be <package>.XposedService.
+        -->
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="com.littlesauce.watrans.XposedService"
+            android:exported="true" />
 
-        <!-- Launcher entry: this screen is both the app UI and the module entry point. -->
         <activity
             android:name=".SettingsActivity"
-            android:label="WhatsApp 翻译助手"
+            android:label="@string/app_name"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Marks this screen as the module's settings page in the manager. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>
     </application>

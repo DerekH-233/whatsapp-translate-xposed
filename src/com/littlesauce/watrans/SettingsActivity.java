@@ -57,6 +57,8 @@ public class SettingsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sp = Prefs.get(this);
+        // Connect to the framework so edits reach the hooked process.
+        PrefsBridge.start(this);
         LocaleInfo.load(this);
         importConfigIfPresent();
 
@@ -457,46 +459,8 @@ public class SettingsActivity extends Activity {
             }
         }
         ed.commit();
-        writeMirror();
-    }
-
-    /** World-readable copy for the hooked process; see Prefs.MIRROR_NAME. */
-    private void writeMirror() {
-        try {
-            java.io.File dir = new java.io.File(getFilesDir().getParentFile(), "shared_prefs");
-            dir.mkdirs();
-            java.io.File mirror = new java.io.File(dir, Prefs.MIRROR_NAME);
-            StringBuilder xml = new StringBuilder();
-            xml.append("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n");
-            for (Map.Entry<String, ?> e : sp.getAll().entrySet()) {
-                Object v = e.getValue();
-                if (v == null) {
-                    continue;
-                }
-                if (v instanceof Integer) {
-                    xml.append("    <int name=\"").append(e.getKey()).append("\" value=\"")
-                            .append(v).append("\" />\n");
-                } else if (v instanceof Boolean) {
-                    xml.append("    <boolean name=\"").append(e.getKey()).append("\" value=\"")
-                            .append(v).append("\" />\n");
-                } else {
-                    xml.append("    <string name=\"").append(e.getKey()).append("\">")
-                            .append(String.valueOf(v).replace("&", "&amp;")
-                                    .replace("<", "&lt;").replace(">", "&gt;"))
-                            .append("</string>\n");
-                }
-            }
-            xml.append("</map>\n");
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(mirror);
-            fos.write(xml.toString().getBytes("UTF-8"));
-            fos.flush();
-            fos.close();
-            dir.setReadable(true, false);
-            dir.setExecutable(true, false);
-            mirror.setReadable(true, false);
-        } catch (Throwable t) {
-            android.util.Log.i("LSTransUI", "mirror write failed: " + t);
-        }
+        // Hand the edit to the framework; the hooked process reads it from there.
+        PrefsBridge.push(values);
     }
 
     private int indexOf(String[] arr, String v) {

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The framework reads these two for the module name and description. -->
+    <string name="app_name">WhatsApp 翻译助手</string>
+    <string name="module_description">WhatsApp 聊天翻译：把对方发来的消息翻译成你设定的语言，译文以小字显示在原文下方，颜色和字号可自定义。支持 Google / Bing / MyMemory 等公开接口，也支持填入自己的 AI 接口。</string>
+</resources>

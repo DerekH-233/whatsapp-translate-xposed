@@ -1,7 +1,10 @@
-"""Insert classes.dex (stored) and assets/* into an aapt2-linked apk.
+"""Insert classes.dex (stored), assets/* and META-INF/** into an aapt2-linked apk.
 
 Keeps the aapt2-generated AndroidManifest.xml / resources.arsc untouched and
 writes classes.dex uncompressed, which is what the runtime expects.
+
+META-INF carries the modern Xposed module descriptor, so it must land in the
+APK verbatim (META-INF/xposed/java_init.list and friends).
 """
 import os
 import sys
@@ -10,6 +13,7 @@ import zipfile
 apk = sys.argv[1]
 dex = sys.argv[2]
 assets_dir = sys.argv[3] if len(sys.argv) > 3 else None
+meta_root = sys.argv[4] if len(sys.argv) > 4 else None
 
 tmp = apk + '.tmp'
 
@@ -41,6 +45,21 @@ with zipfile.ZipFile(tmp, 'w') as zout:
                 zi.compress_type = zipfile.ZIP_DEFLATED
                 zout.writestr(zi, open(full, 'rb').read())
 
+    meta_added = 0
+    if meta_root:
+        base = os.path.join(meta_root, 'META-INF')
+        if os.path.isdir(base):
+            for root, _, files in os.walk(base):
+                for f in files:
+                    full = os.path.join(root, f)
+                    rel = os.path.relpath(full, meta_root).replace('\\', '/')
+                    zi = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+                    zi.compress_type = zipfile.ZIP_DEFLATED
+                    zout.writestr(zi, open(full, 'rb').read())
+                    meta_added += 1
+
 zin.close()
 os.replace(tmp, apk)
-print('[repack] classes.dex %d bytes, assets from %s' % (len(dex_bytes), assets_dir))
+print('[repack] classes.dex %d bytes, assets from %s, META-INF %d file(s)'
+      % (len(dex_bytes), assets_dir, meta_added))
+

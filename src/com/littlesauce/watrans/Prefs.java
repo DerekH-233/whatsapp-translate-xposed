@@ -3,28 +3,26 @@ package com.littlesauce.watrans;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import de.robv.android.xposed.XSharedPreferences;
+import io.github.libxposed.api.XposedModule;
 
 /**
- * Cross-process settings bridge.
+ * Settings access, from both sides of the process boundary.
  *
  * <ul>
- *   <li>In the module's own process (SettingsActivity) we write through the real
- *       {@link SharedPreferences}. The manifest declares
- *       {@code xposedsharedprefs} so the framework makes the file readable by the
- *       hooked processes.</li>
- *   <li>In the hooked WhatsApp process we read through {@link XSharedPreferences},
- *       which re-reads the file when its mtime changes - so settings edits apply
- *       without restarting WhatsApp.</li>
+ *   <li><b>Hooked process</b> - reads through the framework's remote preferences
+ *       ({@link XposedModule#getRemotePreferences(String)}), which the module app
+ *       writes via {@link PrefsBridge}. The handle is re-fetched on a short
+ *       interval so edits still take effect without restarting WhatsApp.</li>
+ *   <li><b>Module process</b> - {@link #get(Context)} is the ordinary local
+ *       preferences backing the settings UI; every edit is pushed to the
+ *       framework by {@link PrefsBridge}.</li>
  * </ul>
  */
 public final class Prefs {
 
     public static final String MODULE_PACKAGE = "com.littlesauce.watrans";
 
-    /** Mirror file the hooked process can read directly; see {@link #mirror}. */
-    public static final String MIRROR_NAME = "mirror.xml";
-
+    /** Local prefs file name, and the group name used for remote preferences. */
     public static final String NAME = "prefs";
 
     public static final String KEY_ENGINE = "engine";
@@ -60,104 +58,65 @@ public final class Prefs {
 
     public static final int DEFAULT_TRANSLATION_COLOR = 0xFF8A8A8A;
 
-    private static final long RELOAD_INTERVAL_MS = 800L;
+    /** How long a remote-preferences snapshot is reused before re-fetching. */
+    private static final long REFRESH_MS = 800L;
 
-    private static volatile XSharedPreferences xPrefs;
-    private static volatile long lastReload;
+    private static volatile XposedModule module;
+    private static volatile SharedPreferences local;
+    private static volatile SharedPreferences remote;
+    private static volatile long remoteAt;
 
     private Prefs() {
     }
 
-    /** Module process: a plain SharedPreferences handle for reading and writing.
-     *  MODE_WORLD_READABLE is passed literally; platforms that restrict it simply
-     *  ignore the bit, and {@link #mirror} covers that case. */
-    public static SharedPreferences get(Context ctx) {
-        return ctx.getSharedPreferences(NAME, 1);
+    static void attach(XposedModule m) {
+        module = m;
     }
 
     /**
-     * Second channel used only by the hooked process: a plain XML file the module
-     * keeps world-readable. Read lazily with a short cache, so settings edits
-     * still take effect without restarting WhatsApp.
+     * Module process only: the local preferences behind the settings UI.
+     * In a hooked process this returns null - use the typed accessors instead.
      */
-    private static java.util.Map<String, String> mirrorCache;
-    private static long mirrorAt;
-
-    private static void loadMirror() {
-        long now = System.currentTimeMillis();
-        if (mirrorCache != null && now - mirrorAt < RELOAD_INTERVAL_MS) {
-            return;
-        }
-        mirrorAt = now;
-        java.util.Map<String, String> map = null;
-        String[] paths = {
-                "/data/user/0/" + MODULE_PACKAGE + "/shared_prefs/" + MIRROR_NAME,
-                "/data/data/" + MODULE_PACKAGE + "/shared_prefs/" + MIRROR_NAME,
-        };
-        for (String p : paths) {
-            try {
-                java.io.File f = new java.io.File(p);
-                if (!f.canRead()) {
-                    continue;
-                }
-                org.xmlpull.v1.XmlPullParser parser = android.util.Xml.newPullParser();
-                parser.setInput(new java.io.FileReader(f));
-                map = new java.util.HashMap<String, String>();
-                String key = null;
-                StringBuilder sb = null;
-                for (int ev = parser.getEventType();
-                     ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT;
-                     ev = parser.next()) {
-                    if (ev == org.xmlpull.v1.XmlPullParser.START_TAG) {
-                        key = parser.getAttributeValue(null, "name");
-                        sb = new StringBuilder();
-                    } else if (ev == org.xmlpull.v1.XmlPullParser.TEXT && sb != null) {
-                        sb.append(parser.getText());
-                    } else if (ev == org.xmlpull.v1.XmlPullParser.END_TAG) {
-                        if (key != null && sb != null) {
-                            map.put(key, sb.toString());
-                        }
-                        key = null;
-                        sb = null;
-                    }
-                }
-                break;
-            } catch (Throwable ignored) {
-            }
-        }
-        mirrorCache = map;
-    }
-
-    private static String fromMirror(String key) {
-        loadMirror();
-        java.util.Map<String, String> m = mirrorCache;
-        return m == null ? null : m.get(key);
-    }
-
-    /** Hooked process: read-only cross-process handle. */
-    private static XSharedPreferences x() {
-        XSharedPreferences p = xPrefs;
+    public static SharedPreferences get(Context ctx) {
+        SharedPreferences p = local;
         if (p == null) {
             synchronized (Prefs.class) {
-                p = xPrefs;
+                p = local;
                 if (p == null) {
-                    p = new XSharedPreferences(MODULE_PACKAGE, NAME);
-                    xPrefs = p;
+                    p = ctx.getApplicationContext().getSharedPreferences(NAME, Context.MODE_PRIVATE);
+                    local = p;
                 }
             }
         }
         return p;
     }
 
-    private static void maybeReload() {
-        long now = System.currentTimeMillis();
-        if (now - lastReload < RELOAD_INTERVAL_MS) {
-            return;
+    /** The preferences to read from, whichever side of the boundary we are on. */
+    private static SharedPreferences source() {
+        XposedModule m = module;
+        if (m == null) {
+            return local;
         }
-        lastReload = now;
-        try {
-            x().reload();
-        } catch (Throwable ignored) {
+        long now = System.currentTimeMillis();
+        SharedPreferences p = remote;
+        if (p != null && now - remoteAt < REFRESH_MS) {
+            return p;
+        }
+        synchronized (Prefs.class) {
+            if (remote != null && now - remoteAt < REFRESH_MS) {
+                return remote;
+            }
+            try {
+                p = m.getRemotePreferences(NAME);
+                remote = p;
+                remoteAt = now;
+            } catch (Throwable t) {
+                if (remote == null) {
+                    Logger.w("getRemotePreferences failed: " + t);
+                }
+                return remote;
+            }
+            return p;
         }
     }
 
@@ -245,25 +204,24 @@ public final class Prefs {
 
     private static String readString(String key, String def) {
         try {
-            maybeReload();
-            String v = x().getString(key, def);
-            if (v == null || (def != null && def.equals(v))) {
-                String m = fromMirror(key);
-                if (m != null) {
-                    return m;
-                }
+            SharedPreferences p = source();
+            if (p == null) {
+                return def;
             }
+            String v = p.getString(key, def);
             return v == null ? def : v;
         } catch (Throwable t) {
-            String m = fromMirror(key);
-            return m != null ? m : def;
+            return def;
         }
     }
 
     private static int readInt(String key, int def) {
         try {
-            maybeReload();
-            return x().getInt(key, def);
+            SharedPreferences p = source();
+            if (p == null) {
+                return def;
+            }
+            return p.getInt(key, def);
         } catch (Throwable t) {
             return def;
         }
@@ -271,8 +229,11 @@ public final class Prefs {
 
     private static boolean readBoolean(String key, boolean def) {
         try {
-            maybeReload();
-            return x().getBoolean(key, def);
+            SharedPreferences p = source();
+            if (p == null) {
+                return def;
+            }
+            return p.getBoolean(key, def);
         } catch (Throwable t) {
             return def;
         }
@@ -280,7 +241,8 @@ public final class Prefs {
 
     private static float readFloat(String key, float def) {
         try {
-            return Float.parseFloat(readString(key, String.valueOf(def)));
+            String s = readString(key, String.valueOf(def));
+            return Float.parseFloat(s);
         } catch (Throwable t) {
             return def;
         }

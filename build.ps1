@@ -73,29 +73,38 @@ $genDir   = Join-Path $out 'gen'
 $outApk   = Join-Path $root 'LSTrans-unsigned.apk'
 $finalApk = Join-Path $root 'LSTrans.apk'
 
-foreach ($d in @($out, $clsStub, $clsApp, $dexDir, $flatDir, $genDir)) {
+# Wipe only the directories this script owns; build/ itself also holds the
+# downloaded libxposed jars, which must survive between runs.
+foreach ($d in @($clsStub, $clsApp, $dexDir, $flatDir, $genDir)) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
+if (-not (Test-Path $out)) { New-Item -ItemType Directory -Force -Path $out | Out-Null }
 
 function Say($m) { Write-Host "[build] $m" }
 
-# 1) compile stubs
-$stubFiles = Get-ChildItem -Path (Join-Path $root 'stubs') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
-Say "javac stubs ($($stubFiles.Count) files)"
-& $JAVA -nowarn -source 8 -target 8 -encoding UTF-8 -d $clsStub @stubFiles
-if ($LASTEXITCODE -ne 0) { throw 'javac stubs failed' }
+# libxposed Modern API artifacts, fetched by tools/fetch_libxposed.ps1.
+$lxDir  = Join-Path $out 'libxposed'
+$lxApi  = Join-Path $lxDir 'api.jar'
+$lxSvc  = Join-Path $lxDir 'service.jar'
+if (-not (Test-Path $lxApi) -or -not (Test-Path $lxSvc)) {
+    throw "libxposed jars missing; run tools\fetch_libxposed.ps1 first"
+}
 
-# 2) compile app sources against stubs + android.jar
+# 1) compile app sources against android.jar + the libxposed API.
+#    The API is compile-only: the framework supplies those classes at runtime,
+#    and bundling them would break the module's own classloader.
 $appFiles = Get-ChildItem -Path (Join-Path $root 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
 Say "javac app ($($appFiles.Count) files)"
-& $JAVA -nowarn -source 8 -target 8 -encoding UTF-8 -bootclasspath $PLAT -classpath $clsStub -d $clsApp @appFiles
+& $JAVA -nowarn -source 8 -target 8 -encoding UTF-8 -bootclasspath $PLAT `
+    -classpath "$lxApi;$lxSvc" -d $clsApp @appFiles
 if ($LASTEXITCODE -ne 0) { throw 'javac app failed' }
 
-# 3) dex only the app classes (the framework supplies de.robv.* at runtime)
+# 2) dex the app classes plus the service artifact (its XposedProvider has to
+#    ship inside the APK so the framework can hand us a service binder).
 Say 'd8'
 $appCls = Get-ChildItem -Path $clsApp -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& $D8 --min-api 28 --output $dexDir --lib $PLAT --no-desugaring @appCls
+& $D8 --min-api 29 --output $dexDir --lib $PLAT --no-desugaring @appCls $lxSvc
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 Get-ChildItem $dexDir | ForEach-Object { Say "  dex: $($_.Name) $($_.Length) bytes" }
 
@@ -110,20 +119,20 @@ Say 'aapt2 link'
     -I $PLAT `
     --manifest (Join-Path $root 'AndroidManifest.xml') `
     --java $genDir `
-    --min-sdk-version 28 `
+    --min-sdk-version 29 `
     --target-sdk-version 34 `
-    --version-code 1 `
-    --version-name 1.0.0 `
+    --version-code 2 `
+    --version-name 1.1.0 `
     -o $outApk `
     $flatZip
 if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed' }
 
-# 5) add assets + classes.dex into the linked apk
-Say 'package assets + dex'
+# 5) add classes.dex, assets/ and META-INF/xposed/ into the linked apk
+Say 'package assets + dex + META-INF'
 $repack = Join-Path $root 'repack.py'
 $dexPath = Join-Path $dexDir 'classes.dex'
 $assetsPath = Join-Path $root 'assets'
-python $repack $outApk $dexPath $assetsPath
+python $repack $outApk $dexPath $assetsPath $root
 if ($LASTEXITCODE -ne 0) { throw 'repack failed' }
 
 # 6) align + sign
