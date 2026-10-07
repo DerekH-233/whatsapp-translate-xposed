@@ -197,7 +197,7 @@ assets/
   regions.json               206 个地区的区号信息（生成物）
 res/mipmap-*/                五档密度图标
 res/values/strings.xml       模块名称与说明（框架从这里读取）
-src/com/littlesauce/watrans/
+src/io/github/derekh_233/watranslate/
   ModuleEntry.java           XposedModule 子类，仅对 com.whatsapp 与 com.whatsapp.w4b 生效
   MessageHook.java           核心：setText 钩子与译文渲染
   Translators.java           8 个引擎的实现
@@ -257,7 +257,7 @@ WhatsApp 的资源 ID 可能随版本变化。正常情况下模块会从目标�
 | 位置 | 内容 |
 |---|---|
 | `DerekH-233/whatsapp-translate-xposed` | 全部源码，日常开发都在这里 |
-| `Xposed-Modules-Repo/com.littlesauce.watrans` | 只有 README 与 release，供 LSPosed 管理器索引 |
+| `Xposed-Modules-Repo/io.github.derekh_233.watranslate` | 只有 README 与 release，供 LSPosed 管理器索引 |
 
 第二个仓库由 LSPosed 模块仓库的组织创建，作者以协作者身份加入；里面不放任何代码。
 管理器的「仓库」标签页就是索引它下面的 release，因此**新版本必须发布到那个仓库**，

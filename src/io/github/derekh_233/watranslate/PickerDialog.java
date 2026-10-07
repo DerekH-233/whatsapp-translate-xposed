@@ -1,4 +1,4 @@
-package com.littlesauce.watrans;
+package io.github.derekh_233.watranslate;
 
 import android.app.AlertDialog;
 import android.content.Context;

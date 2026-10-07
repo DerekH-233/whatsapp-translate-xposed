@@ -68,7 +68,7 @@ Xposed API 由 rovo89 创建，现由 [LSPosed](https://github.com/LSPosed/LSPos
 
 ## 4. Google 翻译公开客户端密钥
 
-`src/com/littlesauce/watrans/Translators.java` 中的
+`src/io/github/derekh_233/watranslate/Translators.java` 中的
 `AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520` 是 **Google 自家网页客户端源码里印着的公开密钥**，
 用于免注册调用 `translate-pa.googleapis.com/v1/translateHtml`。
 

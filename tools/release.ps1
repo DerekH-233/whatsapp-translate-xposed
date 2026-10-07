@@ -27,7 +27,7 @@ Set-Location $root
 
 $SOURCE_REPO = 'DerekH-233/whatsapp-translate-xposed'
 $MARKET_ORG = 'Xposed-Modules-Repo'
-$PKG = 'com.littlesauce.watrans'
+$PKG = 'io.github.derekh_233.watranslate'
 $MARKET_REPO = "$MARKET_ORG/$PKG"
 
 function Say($m) { Write-Host "[release] $m" }

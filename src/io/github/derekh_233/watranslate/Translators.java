@@ -1,4 +1,4 @@
-package com.littlesauce.watrans;
+package io.github.derekh_233.watranslate;
 
 import org.json.JSONArray;
 import org.json.JSONObject;

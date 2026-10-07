@@ -17,7 +17,7 @@ DEFAULT_PREFIXES = [
     'io/github/libxposed/api/',
     'io/github/libxposed/service/',
     'de/robv/android/xposed/',
-    'com/littlesauce/',
+    'io/github/derekh_233/',
 ]
 
 

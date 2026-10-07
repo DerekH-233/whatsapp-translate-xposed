@@ -1,4 +1,4 @@
-package com.littlesauce.watrans;
+package io.github.derekh_233.watranslate;
 
 /**
  * The eight translation backends. Five of them work with no account and no key

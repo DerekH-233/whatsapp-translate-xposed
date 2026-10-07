@@ -1,4 +1,4 @@
-package com.littlesauce.watrans;
+package io.github.derekh_233.watranslate;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -20,7 +20,7 @@ import io.github.libxposed.api.XposedModule;
  */
 public final class Prefs {
 
-    public static final String MODULE_PACKAGE = "com.littlesauce.watrans";
+    public static final String MODULE_PACKAGE = "io.github.derekh_233.watranslate";
 
     /** Local prefs file name, and the group name used for remote preferences. */
     public static final String NAME = "prefs";
