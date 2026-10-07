@@ -41,8 +41,10 @@
 
 1. 从 Releases 下载 `LSTrans.apk` 并安装
 2. 打开 LSPosed → **模块** → 启用 **WhatsApp 翻译助手**
-3. 作用域已由模块自己声明（`com.whatsapp` 与 `com.whatsapp.w4b`），通常无需手动勾选；
-   若框架没有自动应用，进入模块页面 → **作用域** 手动选择
+3. 进入模块页面 → **作用域** → 勾选 WhatsApp。作用域在 `scope.list` 里声明过，
+   管理器会把它列为推荐项，但**仍需确认一次**，不会自动生效
+   - 普通版：`com.whatsapp`
+   - Business 版：`com.whatsapp.w4b`
 4. 强制停止 WhatsApp 后重新打开
 5. 从桌面图标或 LSPosed 模块列表进入设置，选择引擎与目标语言
 
@@ -239,9 +241,12 @@ WhatsApp 的资源 ID 可能随版本变化。正常情况下模块会从目标�
 
 **作用域**
 
-模块在 `META-INF/xposed/scope.list` 里预声明了 `com.whatsapp` 与 `com.whatsapp.w4b`，
-并设置了 `staticScope=true`，因此框架会自动应用，不需要手动勾选。
-普通版与 Business 版是两个不同的包，两者都在声明范围内。
+模块在 `META-INF/xposed/scope.list` 里声明了 `com.whatsapp` 与 `com.whatsapp.w4b`，
+并设置了 `staticScope=true`。声明的作用域只是**推荐项**，管理系统会把它作为建议列出，
+但**不会自动应用** —— 需要在模块页面里勾选一次。
+
+普通版与 Business 版是两个不同的包，装着哪个就勾哪个；两个都装就都勾。
+注意作用域里若包含本机未安装的包，设置会直接报错（例如只有 Business 版时勾选普通版）。
 
 **框架版本**
 
