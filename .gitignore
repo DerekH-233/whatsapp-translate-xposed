@@ -1,0 +1,29 @@
+# ---- build output ----
+build/
+*.apk
+*.dex
+*.idsig
+
+# ---- signing material: never commit ----
+*.keystore
+*.jks
+*.p12
+keystore.properties
+
+# ---- local test config & secrets ----
+lstrans.json
+lstrans.json.applied
+local.properties
+.env
+.env.*
+
+# ---- editor / os ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# NOTE: tools/data/ is intentionally tracked - country-codes.csv (ODbL) and
+# zone1970.tab (IANA) are the public inputs of tools/gen_locale_data.py, kept
+# in-tree so the locale tables can be regenerated without network access.
