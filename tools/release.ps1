@@ -56,10 +56,16 @@ the invitation, then re-run. Use -SkipMarket to publish to the source repo only.
 # ------------------------------------------------------------ bump version
 Say "setting version $Version (code $VersionCode)"
 $build = Get-Content build.ps1 -Raw
+if ($build -notmatch '--version-code \d+' -or $build -notmatch '--version-name [0-9][0-9.]*') {
+    Fail 'could not find --version-code/--version-name in build.ps1'
+}
 $new = [regex]::Replace($build, '--version-code \d+', "--version-code $VersionCode")
 $new = [regex]::Replace($new, '--version-name [0-9][0-9.]*', "--version-name $Version")
-if ($new -eq $build) { Fail 'could not find --version-code/--version-name in build.ps1' }
-[System.IO.File]::WriteAllText((Join-Path $root 'build.ps1'), $new)
+if ($new -ne $build) {
+    [System.IO.File]::WriteAllText((Join-Path $root 'build.ps1'), $new)
+} else {
+    Say 'build.ps1 already at this version'
+}
 
 # ---------------------------------------------------------------- build
 Say 'building'
@@ -75,7 +81,11 @@ Say "apk $size bytes, sha256 $sha"
 # ------------------------------------------------------- source repo: push
 Say 'pushing source'
 git add -A
-git commit -m "Release $Version" | Out-Null
+if (git status --porcelain) {
+    git commit -m "Release $Version" | Out-Null
+} else {
+    Say 'nothing to commit'
+}
 $srcTag = "v$Version"
 git tag -f $srcTag | Out-Null
 git push origin HEAD | Out-Null
