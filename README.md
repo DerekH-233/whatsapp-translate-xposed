@@ -209,6 +209,7 @@ src/com/littlesauce/watrans/
   SettingsActivity.java      设置界面，同时是模块入口
   Logger.java                日志
 tools/
+  release.ps1                一条命令同时发到源码仓库与模块仓库
   fetch_libxposed.ps1        下载 libxposed api / service
   dex_defined_classes.py     核验某个类是被定义进 dex 还是仅被引用
   fetch_locale_sources.py    下载数据源
@@ -246,6 +247,39 @@ WhatsApp 的资源 ID 可能随版本变化。正常情况下模块会从目标�
 
 模块声明 `minApiVersion=101`，需要 LSPosed 2.x。在只支持旧版 API 的框架上模块不会被加载。
 可以用 `lspctl module show <包名>` 确认框架把模块识别成了 `modern` 还是 `legacy`。
+
+---
+
+## 发布
+
+发布涉及两个仓库，但**源码只有一份**：
+
+| 位置 | 内容 |
+|---|---|
+| `DerekH-233/whatsapp-translate-xposed` | 全部源码，日常开发都在这里 |
+| `Xposed-Modules-Repo/com.littlesauce.watrans` | 只有 README 与 release，供 LSPosed 管理器索引 |
+
+第二个仓库由 LSPosed 模块仓库的组织创建，作者以协作者身份加入；里面不放任何代码。
+管理器的「仓库」标签页就是索引它下面的 release，因此**新版本必须发布到那个仓库**，
+只发在源码仓库不会被收录。
+
+一条命令完成两边：
+
+```powershell
+.\tools\release.ps1 -Version 1.2.0 -VersionCode 3
+.\tools\release.ps1 -Version 1.2.0 -VersionCode 3 -SkipMarket   # 只发源码
+```
+
+它会依次：改 `build.ps1` 里的版本号 → 构建签名 → 推送源码与 tag →
+在模块仓库创建 release。脚本会先检查工作区是否干净、模块仓库是否存在，
+避免发出版本与代码不对应。
+
+模块仓库对 release 有格式要求：**tag 必须是 `<versionCode>-<versionName>`**
+（例如 `3-1.2.0`），且必须带 apk 附件。脚本已按此拼接。
+另外官方说明提到，单纯替换 release 的附件不会触发索引，必须改动 release 本身，
+所以每次都创建新的 release 而不是覆盖旧的。
+
+提交模块到仓库：<https://modules.lsposed.org/submission>
 
 ---
 
