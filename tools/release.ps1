@@ -12,12 +12,13 @@
 #
 # Usage:
 #   .\tools\release.ps1 -Version 1.2.0 -VersionCode 3
+#   .\tools\release.ps1 -Version 1.2.0 -VersionCode 3 -Notes .\NOTES.md
 #   .\tools\release.ps1 -Version 1.2.0 -VersionCode 3 -SkipMarket
 #
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][int]$VersionCode,
-    [switch]$SkipTests,
+    [string]$Notes,
     [switch]$SkipMarket
 )
 
@@ -91,6 +92,36 @@ git tag -f $srcTag | Out-Null
 git push origin HEAD | Out-Null
 git push -f origin $srcTag | Out-Null
 Say "source pushed, tag $srcTag"
+
+# The source repo needs a release as well, not just the tag: a bare tag leaves
+# GitHub reporting the previous version as "Latest".
+$srcNotes = Join-Path $env:TEMP "lst_src_$VersionCode.md"
+if ($Notes -and (Test-Path $Notes)) {
+    Copy-Item $Notes $srcNotes -Force
+} else {
+    @"
+## WhatsApp 翻译助手 $Version
+
+SHA-256: ``$sha``
+
+APK attached below. The same build is published to the module repository for
+the LSPosed manager:
+https://github.com/$MARKET_REPO/releases/tag/$VersionCode-$Version
+"@ | Set-Content -Path $srcNotes -Encoding utf8
+}
+
+gh release view $srcTag --repo $SOURCE_REPO --json tagName 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Say "source release $srcTag already exists; leaving it alone"
+} else {
+    gh release create $srcTag $apk `
+        --repo $SOURCE_REPO `
+        --title "WhatsApp 翻译助手 $Version" `
+        --notes-file $srcNotes | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail 'could not create the source release' }
+    Say "source release $srcTag created"
+}
+Remove-Item $srcNotes -Force -ErrorAction SilentlyContinue
 
 if ($SkipMarket) { Say 'done (market step skipped)'; exit 0 }
 
