@@ -44,13 +44,22 @@ if (git status --porcelain) {
 if (-not (Test-Path 'build.ps1')) { Fail 'run this from the repository root' }
 
 if (-not $SkipMarket) {
-    $check = gh api "repos/$MARKET_REPO" --jq '.full_name' 2>&1
+    $perm = gh api "repos/$MARKET_REPO" --jq '.permissions.push' 2>&1
     if ($LASTEXITCODE -ne 0) {
         Fail @"
 $MARKET_REPO does not exist yet, or you are not a collaborator on it.
 Submit the module first at https://modules.lsposed.org/submission and accept
 the invitation, then re-run. Use -SkipMarket to publish to the source repo only.
 "@
+    }
+    if ($perm.Trim() -ne 'true') {
+        # Checked up front on purpose: without this the run pushes the source
+        # repo, tags it, and only then fails on the market release, leaving a
+        # half-finished release behind.
+        Say "no push access to $MARKET_REPO (permissions.push=false)"
+        Say 'publishing to the source repo only; the module listing will keep'
+        Say 'pointing at whatever release is already published there'
+        $SkipMarket = $true
     }
 }
 
