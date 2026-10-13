@@ -115,8 +115,7 @@ public class SettingsActivity extends Activity {
         hint.setTextSize(12f);
         hint.setTextColor(0xFF888888);
         hint.setPadding(0, dp(8), 0, 0);
-        hint.setText("这里是模块的设置入口，装好后从桌面图标或 LSPosed 模块列表进入都可以。\n"
-                + "改完设置立即生效，不需要重启 WhatsApp。");
+        hint.setText("这里是模块的设置入口，装好后从桌面图标或 LSPosed 模块列表进入都可以。");
         card.addView(hint);
     }
 
@@ -371,7 +370,7 @@ public class SettingsActivity extends Activity {
         pickerRow(root, "我的国家/地区（用于判断对方是否与我在同一地区）",
                 "+" + Prefs.myRegion(), Prefs.KEY_MY_REGION, true);
 
-        hint(root, "按对方手机号的国家代码离线查表得出，不会把号码发到任何服务器。\n"
+        hint(root, "按对方手机号的国家代码离线查表得出，查表过程不发网络请求。\n"
                 + "覆盖 " + LocaleInfo.allAreaCodes().size() + " 个国家/地区区号，含语言、货币和当地时区。");
     }
 

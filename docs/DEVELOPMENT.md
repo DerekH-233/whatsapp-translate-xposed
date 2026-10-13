@@ -46,8 +46,10 @@
 设置页与被 hook 的进程之间走框架提供的远程配置：
 
 - 设置页把每次修改通过 `XposedService` 推送到框架（`PrefsBridge`），框架负责持久化
-- 被 hook 的进程用 `getRemotePreferences("prefs")` 读取，并按 800ms 缓存重新拉取，
-  因此设置修改后无需重启 WhatsApp
+- 被 hook 的进程用 `getRemotePreferences("prefs")` 读取，并按 800ms 缓存重新拉取
+
+缓存窗口意味着改动会在下一次读取时生效，而不是写入的那一刻。实际体验上是"改完很快就能看到"，
+但不要写成"立即生效、无需重启"这种绝对说法：拉取周期、进程存活状态、框架实现都可能让这句话不成立。
 
 更早的版本依赖 `XSharedPreferences` 加一个世界可读的镜像文件，因为 targetSdk 34 下
 `MODE_WORLD_READABLE` 已受限制、应用私有目录跨进程读不到。迁移到现代 API 后这套变通方案
