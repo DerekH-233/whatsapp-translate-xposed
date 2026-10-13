@@ -228,6 +228,24 @@ public class SettingsActivity extends Activity {
         hint.setText("点上面一行打开语言列表，可以直接搜索。共 "
                 + LocaleInfo.allLanguages().size() + " 种语言，中文和英文名都能搜。");
         root.addView(hint);
+
+        buildInputTranslate(root);
+    }
+
+    // ==================================================== input translate
+
+    private void buildInputTranslate(LinearLayout root) {
+        section(root, "输入框翻译");
+
+        check(root, "长按发送键翻译我打的字", Prefs.KEY_INPUT_TRANSLATE_ENABLED, true);
+
+        pickerRow(root, "翻译成", LocaleInfo.labelOf(Prefs.outLang()) + "（"
+                + Prefs.outLang() + "）", Prefs.KEY_OUT_LANG, false);
+
+        hint(root, "在聊天输入框里打好字，长按发送键，草稿会变成译文，再点一下发送键就发出去了。\n"
+                + "长按第二次可以还原成你自己写的原文，一个字都不会丢。\n"
+                + "这里是「我打的话翻译成什么语言」，和上面那个「把别人消息翻译成什么语言」正好相反：\n"
+                + "上面管收，这里管发。默认英语，做外贸的话通常不用改。");
     }
 
     private void pickerRow(LinearLayout parent, String title, final String currentLabel,

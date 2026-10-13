@@ -16,6 +16,20 @@
 4. 防递归使用 `ThreadLocal` 标记；防 view 复用错乱用一张以 view 为弱键的状态表保存源文快照，回写前比对（现代 API 不再提供附加字段）
 5. 相同文本、引擎与目标语言的组合只请求一次
 
+### 输入框翻译
+
+复用发送键本来就有的长按，不新增任何控件，因此不碰 WhatsApp 的视图树、也没有浮窗。
+
+1. 钩 `View.performLongClick()`；只有按下的是发送键、且附近能找到输入框时才消费这次长按，
+   其余长按一律原样放行（所以 WhatsApp 里其它长按行为不受影响）
+2. 发送键与输入框都按**资源名**定位（`send` / `entry`），走目标进程自己的资源表，
+   不写死数字 id
+3. 译文写回输入框后保存原文；再次长按同一内容即还原
+4. 翻译期间用户若改了草稿，结果直接丢弃，绝不覆盖
+
+实测（WhatsApp Business 2.26.39.72）：发送键 `com.whatsapp.w4b:id/send`，
+输入框 `com.whatsapp.w4b:id/entry`，两者均 `long-clickable="true"`。
+
 ### 资源 ID 解析
 
 按以下顺序解析：
@@ -111,6 +125,7 @@ res/values/strings.xml       模块名称与说明（框架从这里读取）
 src/io/github/derekh_233/watranslate/
   ModuleEntry.java           XposedModule 子类，仅对 com.whatsapp 与 com.whatsapp.w4b 生效
   MessageHook.java           核心：setText 钩子与译文渲染
+  InputTranslator.java       长按发送键翻译输入框草稿
   Translators.java           8 个引擎的实现
   Engine.java                引擎枚举
   LocaleInfo.java            国家、语言、货币与当地时间

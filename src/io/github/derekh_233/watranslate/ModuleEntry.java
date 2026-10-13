@@ -62,5 +62,10 @@ public class ModuleEntry extends XposedModule {
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "MessageHook install failed", t);
         }
+        try {
+            InputTranslator.install(this, pkg);
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "InputTranslator install failed", t);
+        }
     }
 }

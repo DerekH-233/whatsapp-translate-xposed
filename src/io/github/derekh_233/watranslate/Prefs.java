@@ -34,6 +34,9 @@ public final class Prefs {
     public static final String KEY_OUTGOING_ENABLED = "outgoing_enabled";
     public static final String KEY_DEBUG_LOG = "debug_log";
 
+    /** Long-press the send button to translate the draft. */
+    public static final String KEY_INPUT_TRANSLATE_ENABLED = "input_translate_enabled";
+
     public static final String KEY_AI_ENDPOINT = "ai_endpoint";
     public static final String KEY_AI_KEY = "ai_key";
     public static final String KEY_AI_MODEL = "ai_model";
@@ -152,6 +155,11 @@ public final class Prefs {
         return readBoolean(KEY_DEBUG_LOG, true);
     }
 
+    /** Long-press the send button to translate what is in the chat box. */
+    public static boolean inputTranslateEnabled() {
+        return readBoolean(KEY_INPUT_TRANSLATE_ENABLED, true);
+    }
+
     public static String aiEndpoint() {
         return readString(KEY_AI_ENDPOINT, "");
     }
@@ -197,9 +205,13 @@ public final class Prefs {
         return readString(KEY_MY_REGION, "86");
     }
 
-    /** Target language for sent messages; empty means "use peer language". */
+    /**
+     * Language the chat box gets translated into. Defaults to English because
+     * the direction people want here is "write in my language, send in theirs",
+     * not the incoming direction.
+     */
     public static String outLang() {
-        return readString(KEY_OUT_LANG, "");
+        return readString(KEY_OUT_LANG, "en");
     }
 
     private static String readString(String key, String def) {
