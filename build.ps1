@@ -84,10 +84,11 @@ if (-not (Test-Path $out)) { New-Item -ItemType Directory -Force -Path $out | Ou
 function Say($m) { Write-Host "[build] $m" }
 
 # libxposed Modern API artifacts, fetched by tools/fetch_libxposed.ps1.
-$lxDir  = Join-Path $out 'libxposed'
-$lxApi  = Join-Path $lxDir 'api.jar'
-$lxSvc  = Join-Path $lxDir 'service.jar'
-if (-not (Test-Path $lxApi) -or -not (Test-Path $lxSvc)) {
+$lxDir   = Join-Path $out 'libxposed'
+$lxApi   = Join-Path $lxDir 'api.jar'
+$lxSvc   = Join-Path $lxDir 'service.jar'
+$lxIface = Join-Path $lxDir 'interface.jar'
+if (-not (Test-Path $lxApi) -or -not (Test-Path $lxSvc) -or -not (Test-Path $lxIface)) {
     throw "libxposed jars missing; run tools\fetch_libxposed.ps1 first"
 }
 
@@ -97,14 +98,25 @@ if (-not (Test-Path $lxApi) -or -not (Test-Path $lxSvc)) {
 $appFiles = Get-ChildItem -Path (Join-Path $root 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
 Say "javac app ($($appFiles.Count) files)"
 & $JAVA -nowarn -source 8 -target 8 -encoding UTF-8 -bootclasspath $PLAT `
-    -classpath "$lxApi;$lxSvc" -d $clsApp @appFiles
+    -classpath "$lxApi;$lxSvc;$lxIface" -d $clsApp @appFiles
 if ($LASTEXITCODE -ne 0) { throw 'javac app failed' }
 
-# 2) dex the app classes plus the service artifact (its XposedProvider has to
-#    ship inside the APK so the framework can hand us a service binder).
+# 2) dex the app classes plus the two libxposed artifacts that have to ship
+#    inside the APK:
+#      service.jar    ships XposedProvider, which the framework calls to hand us
+#                     a service binder
+#      interface.jar  ships the AIDL stubs (IXposedService and friends) that
+#                     XposedServiceHelper resolves at runtime. It is a runtime
+#                     dependency of service, so Gradle pulls it in transitively
+#                     and it is easy to miss in a hand-rolled build - without it
+#                     the binder arrives but resolving the stub throws
+#                     NoClassDefFoundError and no preference is ever written.
+#    Desugaring stays ON (no --no-desugaring): the libxposed artifacts are built
+#    with lambdas, and without desugaring they stay as invokedynamic, which
+#    fails at runtime with NoSuchMethodError on LambdaMetafactory.metafactory.
 Say 'd8'
 $appCls = Get-ChildItem -Path $clsApp -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& $D8 --min-api 29 --output $dexDir --lib $PLAT --no-desugaring @appCls $lxSvc
+& $D8 --min-api 29 --output $dexDir --lib $PLAT @appCls $lxSvc $lxIface
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 Get-ChildItem $dexDir | ForEach-Object { Say "  dex: $($_.Name) $($_.Length) bytes" }
 

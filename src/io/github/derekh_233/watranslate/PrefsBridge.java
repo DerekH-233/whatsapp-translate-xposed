@@ -78,29 +78,58 @@ public final class PrefsBridge {
         try {
             SharedPreferences.Editor ed = target.edit();
             for (Map.Entry<String, ?> e : values.entrySet()) {
-                String k = e.getKey();
-                Object v = e.getValue();
-                if (v instanceof Integer) {
-                    ed.putInt(k, (Integer) v);
-                } else if (v instanceof Boolean) {
-                    ed.putBoolean(k, (Boolean) v);
-                } else if (v instanceof Float) {
-                    ed.putFloat(k, (Float) v);
-                } else {
-                    ed.putString(k, String.valueOf(v));
-                }
+                put(ed, e.getKey(), e.getValue());
             }
-            ed.commit();
+            if (!ed.commit()) {
+                Log.w(TAG, "push: commit returned false");
+            }
         } catch (Throwable t) {
             Log.w(TAG, "push failed", t);
         }
     }
 
+    private static void put(SharedPreferences.Editor ed, String key, Object v) {
+        if (v instanceof Integer) {
+            ed.putInt(key, (Integer) v);
+        } else if (v instanceof Boolean) {
+            ed.putBoolean(key, (Boolean) v);
+        } else if (v instanceof Float) {
+            ed.putFloat(key, (Float) v);
+        } else if (v instanceof Long) {
+            ed.putLong(key, (Long) v);
+        } else {
+            ed.putString(key, String.valueOf(v));
+        }
+    }
+
+    /**
+     * Replace the framework's copy with the local preferences.
+     *
+     * <p>This clears first on purpose. A key that was removed locally - or that
+     * only ever existed because an older build wrote it - would otherwise stay
+     * in the framework's store forever, and the hooked process would keep
+     * honouring a setting the user can no longer see.</p>
+     */
     private static void pushAll(Context ctx) {
         SharedPreferences local = Prefs.get(ctx);
-        if (local == null) {
+        SharedPreferences target = remote;
+        if (local == null || target == null) {
             return;
         }
-        push(local.getAll());
+        try {
+            Map<String, ?> all = local.getAll();
+            SharedPreferences.Editor ed = target.edit();
+            ed.clear();
+            for (Map.Entry<String, ?> e : all.entrySet()) {
+                put(ed, e.getKey(), e.getValue());
+            }
+            if (!ed.commit()) {
+                Log.w(TAG, "pushAll: commit returned false");
+            } else {
+                Log.i(TAG, "pushed " + all.size() + " setting(s) to the framework");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "pushAll failed", t);
+        }
     }
 }

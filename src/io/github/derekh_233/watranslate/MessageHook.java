@@ -361,7 +361,10 @@ public final class MessageHook {
         } finally {
             SELF_SET.set(Boolean.FALSE);
         }
-        Logger.d("rendered -> " + (translation.length() > 60
+        Logger.d("rendered colour=" + Integer.toHexString(Prefs.translationColor())
+                + " italic=" + Prefs.translationItalic()
+                + " scale=" + Prefs.translationScale()
+                + " -> " + (translation.length() > 60
                 ? translation.substring(0, 60) + "..." : translation));
     }
 

@@ -20,6 +20,20 @@ DEFAULT_PREFIXES = [
     'io/github/derekh_233/',
 ]
 
+# Classes the APK cannot work without, spelled out. A bare prefix count is not
+# enough: service.jar and interface.jar are separate artifacts and the AIDL
+# stubs live in the latter, so a build that bundles only service.jar still shows
+# a healthy-looking "service/ DEFINED 15" while the service handshake fails with
+# NoClassDefFoundError at runtime.
+REQUIRED = [
+    'Lio/github/libxposed/service/XposedProvider;',
+    'Lio/github/libxposed/service/XposedServiceHelper;',
+    'Lio/github/libxposed/service/XposedService;',
+    'Lio/github/libxposed/service/RemotePreferences;',
+    'Lio/github/libxposed/service/IXposedService;',
+    'Lio/github/libxposed/service/IXposedService$Stub;',
+]
+
 
 def uleb128(buf, off):
     result = 0
@@ -80,7 +94,16 @@ def main():
             bad = 1
         if p.startswith('de/robv') and hits:
             bad = 1
-    if bad:
+
+    missing = [c for c in REQUIRED if c not in defined]
+    print('\n   required classes:')
+    for c in REQUIRED:
+        print('      %-52s %s' % (c, 'ok' if c in defined else 'MISSING'))
+    if missing:
+        print('\nFAIL: %d required class(es) missing from the dex; the service '
+              'handshake will throw NoClassDefFoundError.' % len(missing))
+        bad = 1
+    elif bad:
         print('\nFAIL: the libxposed API must not be bundled, and the legacy '
               'de.robv API must be gone entirely.')
     return bad

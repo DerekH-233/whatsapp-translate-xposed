@@ -1,10 +1,14 @@
 # Fetch the libxposed Modern API artifacts (Apache-2.0) from Maven Central and
 # extract their classes.jar next to the build output.
 #
-#   api.jar      compileOnly - the framework supplies io.github.libxposed.api at
-#                runtime; bundling it would break the module classloader
-#   service.jar  bundled into the APK - ships XposedProvider, which is how the
-#                framework hands the settings UI a service binder
+#   api.jar        compileOnly - the framework supplies io.github.libxposed.api at
+#                  runtime; bundling it would break the module classloader
+#   service.jar    bundled into the APK - ships XposedProvider, which is how the
+#                  framework hands the settings UI a service binder
+#   interface.jar  bundled into the APK - ships the AIDL stubs (IXposedService
+#                  and friends) that XposedServiceHelper resolves at runtime.
+#                  service declares it as a runtime dependency, so Gradle would
+#                  pull it in transitively; a hand-rolled build must not miss it.
 #
 # Run once; build.ps1 fails with a clear message when these are missing.
 $ErrorActionPreference = 'Stop'
@@ -15,7 +19,7 @@ New-Item -ItemType Directory -Force -Path $dest | Out-Null
 $version = '102.0.0'
 $base = "https://repo1.maven.org/maven2/io/github/libxposed"
 
-foreach ($name in @('api', 'service')) {
+foreach ($name in @('api', 'service', 'interface')) {
     $aar = Join-Path $dest "$name.aar"
     $jar = Join-Path $dest "$name.jar"
     $url = "$base/$name/$version/$name-$version.aar"
