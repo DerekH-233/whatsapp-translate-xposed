@@ -177,14 +177,126 @@ public class SettingsActivity extends Activity {
                 + "后 4 个要用你自己的账号：百度、DeepL、微软、以及任意 OpenAI 兼容的 AI 接口（如 DeepSeek）。");
     }
 
+    // ========================================================= custom AI UI
+
+    private static final String[] AI_FORMAT_LABELS = {
+            "OpenAI Chat Completions（最通用，默认）",
+            "OpenAI Responses",
+            "Anthropic Messages",
+    };
+    private static final String[] AI_FORMAT_VALUES = {
+            Translators.AI_CHAT,
+            Translators.AI_RESPONSES,
+            Translators.AI_ANTHROPIC,
+    };
+
+    private void aiFormatRow(LinearLayout parent) {
+        TextView label = new TextView(this);
+        label.setText("API 格式（不确定就保持第一个）");
+        label.setTextSize(13f);
+        label.setPadding(0, dp(10), 0, dp(2));
+        parent.addView(label);
+
+        final TextView value = new TextView(this);
+        value.setTextSize(15f);
+        value.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setStroke(dp(1), 0x33000000);
+        bg.setColor(0xFFF2F2F2);
+        value.setBackground(bg);
+        value.setTextColor(0xFF222222);
+        value.setText(aiFormatLabel(sp.getString(Prefs.KEY_AI_FORMAT, Translators.AI_CHAT)));
+        value.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                new AlertDialog.Builder(SettingsActivity.this)
+                        .setTitle("选择 API 格式")
+                        .setItems(AI_FORMAT_LABELS, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                Map<String, Object> m = new HashMap<String, Object>();
+                                m.put(Prefs.KEY_AI_FORMAT, AI_FORMAT_VALUES[which]);
+                                save(m);
+                                value.setText(AI_FORMAT_LABELS[which]);
+                            }
+                        })
+                        .show();
+            }
+        });
+        parent.addView(value);
+
+        hint(parent, "三种格式服务端不一样，选错了会返回 404：\n"
+                + "· Chat Completions —— POST .../v1/chat/completions，用 Authorization 鉴权。"
+                + "绝大多数服务和第三方中转站都是这个\n"
+                + "· Responses —— POST .../v1/responses，OpenAI 的新接口\n"
+                + "· Anthropic Messages —— POST .../v1/messages，system 单独一个字段，"
+                + "用 x-api-key 鉴权。DeepSeek 的地址填 https://api.deepseek.com/anthropic");
+    }
+
+    private String aiFormatLabel(String format) {
+        for (int i = 0; i < AI_FORMAT_VALUES.length; i++) {
+            if (AI_FORMAT_VALUES[i].equals(format)) {
+                return AI_FORMAT_LABELS[i];
+            }
+        }
+        return AI_FORMAT_LABELS[0];
+    }
+
+    private void aiTestRow(LinearLayout parent) {
+        final TextView btn = new TextView(this);
+        btn.setText("测试连接");
+        btn.setTextSize(15f);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setColor(0xFF2E7D32);
+        btn.setBackground(bg);
+        btn.setTextColor(0xFFFFFFFF);
+        btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                btn.setEnabled(false);
+                btn.setText("测试中…");
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final String[] r = Translators.probeCustomAi();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                btn.setEnabled(true);
+                                btn.setText("测试连接");
+                                new AlertDialog.Builder(SettingsActivity.this)
+                                        .setTitle(r[0])
+                                        .setMessage(r[1])
+                                        .setPositiveButton("知道了", null)
+                                        .show();
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+        parent.addView(btn);
+
+        hint(parent, "会真的发一条 \"Hello\" 过去，把 HTTP 状态码和接口地址都显示出来，"
+                + "方便判断是地址、Key、模型名还是格式的问题。\n"
+                + "404 通常表示地址或格式不对；401 表示 Key 不对；"
+                + "400 多半是模型名写错了。");
+    }
+
     private void rebuildEngineKeys(Engine engine) {
         engineKeyBox.removeAllViews();
         switch (engine) {
             case CUSTOM_AI:
-                edit(engineKeyBox, "接口地址（可只填 base，会自动补 /v1/chat/completions）",
+                aiFormatRow(engineKeyBox);
+                edit(engineKeyBox, "接口地址（填到 /v1 为止或填完整路径都行）",
                         Prefs.KEY_AI_ENDPOINT, "https://api.deepseek.com");
                 edit(engineKeyBox, "API Key", Prefs.KEY_AI_KEY, "sk-...");
-                edit(engineKeyBox, "模型名", Prefs.KEY_AI_MODEL, "deepseek-chat / gpt-4o-mini");
+                edit(engineKeyBox, "模型名", Prefs.KEY_AI_MODEL, "deepseek-flash / gpt-4o-mini");
+                aiTestRow(engineKeyBox);
                 edit(engineKeyBox, "自定义提示词（发给 AI 的系统提示；${toCode} 会替换成上面的目标语言）",
                         Prefs.KEY_AI_PROMPT, Translators.DEFAULT_AI_PROMPT, true);
                 break;

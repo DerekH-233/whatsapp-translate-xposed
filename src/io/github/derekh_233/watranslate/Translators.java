@@ -11,6 +11,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Translation backends - no registration, no subscription, no vendor server.
@@ -371,72 +375,289 @@ public final class Translators {
 
     // ============================================================ Custom AI
 
+    /** API shapes this engine can speak. Stored as the {@code ai_format} value. */
+    public static final String AI_CHAT = "chat";
+    public static final String AI_RESPONSES = "responses";
+    public static final String AI_ANTHROPIC = "anthropic";
+
+    /** Path each shape appends to the base URL. */
+    private static String aiPath(String format) {
+        if (AI_RESPONSES.equals(format)) {
+            return "/responses";
+        }
+        if (AI_ANTHROPIC.equals(format)) {
+            return "/messages";
+        }
+        return "/chat/completions";
+    }
+
+    /**
+     * URLs worth trying for what the user typed, most likely first.
+     *
+     * People paste either a complete endpoint or a bare base, and bases are
+     * handed out both with and without the version segment. A base that already
+     * ends in one - {@code .../v1}, {@code .../compatible-mode/v1} - must not get
+     * a second {@code /v1}; appending it unconditionally is what produced
+     * {@code /v1/v1/chat/completions} and broke every relay endpoint, since
+     * relays always hand out a {@code .../v1} base.
+     *
+     * A bare host gets both spellings tried, because providers disagree about the
+     * version segment: OpenAI documents {@code /v1}, DeepSeek documents the path
+     * without it.
+     */
+    public static String[] endpointCandidates(String raw, String format) {
+        String path = aiPath(format);
+        String base = raw == null ? "" : raw.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (base.isEmpty()) {
+            return new String[0];
+        }
+        if (base.endsWith(path)) {
+            return new String[]{base};
+        }
+        String last = base.substring(base.lastIndexOf('/') + 1);
+        if (last.matches("v\\d+.*")) {
+            return new String[]{base + path};
+        }
+        return new String[]{base + "/v1" + path, base + path};
+    }
+
+    /** Which candidate actually answered last time, keyed by format + user input. */
+    private static final Map<String, String> RESOLVED =
+            new ConcurrentHashMap<String, String>();
+
+    /** One HTTP attempt's outcome. */
+    private static final class Call {
+        int code;
+        boolean ok;
+        String text;
+        String body;
+    }
+
     private static String customAi(String text, String from, String to) throws Exception {
-        String endpoint = normalizeEndpoint(Prefs.aiEndpoint());
+        String endpoint = Prefs.aiEndpoint() == null ? "" : Prefs.aiEndpoint().trim();
         String key = Prefs.aiKey();
         String model = Prefs.aiModel();
+        String format = Prefs.aiFormat();
         if (endpoint.isEmpty()) {
             Logger.w("custom AI: endpoint empty, skip");
             return null;
         }
-        if (key.trim().isEmpty()) {
+        if (key == null || key.trim().isEmpty()) {
             Logger.w("custom AI: api key empty, skip");
             return null;
         }
-        if (model.trim().isEmpty()) {
+        if (model == null || model.trim().isEmpty()) {
             model = "gpt-4o-mini";
         }
         String system = renderPrompt(Prefs.aiPrompt(), from, to);
 
-        JSONObject body = new JSONObject();
-        body.put("model", model);
-        body.put("temperature", 0.2d);
-        body.put("stream", false);
-        JSONArray messages = new JSONArray();
-        if (system != null && !system.isEmpty()) {
-            messages.put(new JSONObject().put("role", "system").put("content", system));
+        String cacheKey = format + '\u0000' + endpoint;
+        List<String> urls = new ArrayList<String>();
+        String pinned = RESOLVED.get(cacheKey);
+        if (pinned != null) {
+            urls.add(pinned);
         }
-        messages.put(new JSONObject().put("role", "user").put("content", text));
-        body.put("messages", messages);
-
-        HttpURLConnection c = open(endpoint, "POST");
-        c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        c.setRequestProperty("Accept", "application/json");
-        c.setRequestProperty("Authorization", "Bearer " + key.trim());
-        write(c, body.toString());
-        int code = c.getResponseCode();
-        InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-        String resp = streamToString(in);
-        if (code < 200 || code >= 300) {
-            Logger.w("custom AI HTTP " + code + " | endpoint=" + endpoint + " | body=" + shorten(resp));
+        for (String u : endpointCandidates(endpoint, format)) {
+            if (!urls.contains(u)) {
+                urls.add(u);
+            }
+        }
+        if (urls.isEmpty()) {
             return null;
         }
-        Logger.d("custom AI resp=" + shorten(resp));
-        JSONArray choices = new JSONObject(resp).optJSONArray("choices");
+
+        for (int i = 0; i < urls.size(); i++) {
+            String url = urls.get(i);
+            Call r = aiCall(url, format, key.trim(), model, system, text);
+            if (r.ok) {
+                RESOLVED.put(cacheKey, url);
+                return r.text;
+            }
+            if (r.code == 404 && i < urls.size() - 1) {
+                Logger.d("custom AI: " + url + " answered 404, trying the other spelling");
+                continue;
+            }
+            Logger.w("custom AI HTTP " + r.code + " | " + url + " | " + shorten(r.body));
+            return null;
+        }
+        return null;
+    }
+
+    /** Build and send one request in the chosen shape. */
+    private static Call aiCall(String url, String format, String key, String model,
+                               String system, String text) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("stream", false);
+        if (AI_ANTHROPIC.equals(format)) {
+            // Anthropic takes the system prompt as a top-level field, and
+            // max_tokens is mandatory there.
+            body.put("max_tokens", 4096);
+            body.put("temperature", 0.2d);
+            body.put("system", system == null ? "" : system);
+            JSONArray msgs = new JSONArray();
+            msgs.put(new JSONObject().put("role", "user").put("content", text));
+            body.put("messages", msgs);
+        } else if (AI_RESPONSES.equals(format)) {
+            body.put("instructions", system == null ? "" : system);
+            body.put("input", text);
+        } else {
+            body.put("temperature", 0.2d);
+            JSONArray msgs = new JSONArray();
+            if (system != null && !system.isEmpty()) {
+                msgs.put(new JSONObject().put("role", "system").put("content", system));
+            }
+            msgs.put(new JSONObject().put("role", "user").put("content", text));
+            body.put("messages", msgs);
+        }
+
+        HttpURLConnection c = open(url, "POST");
+        c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        c.setRequestProperty("Accept", "application/json");
+        if (AI_ANTHROPIC.equals(format)) {
+            // Anthropic itself reads x-api-key. Gateways that speak this shape
+            // often still want a Bearer token, so send both; neither side minds
+            // the extra header.
+            c.setRequestProperty("x-api-key", key);
+            c.setRequestProperty("anthropic-version", "2023-06-01");
+            c.setRequestProperty("Authorization", "Bearer " + key);
+        } else {
+            c.setRequestProperty("Authorization", "Bearer " + key);
+        }
+        write(c, body.toString());
+
+        Call out = new Call();
+        out.code = c.getResponseCode();
+        InputStream in = out.code >= 200 && out.code < 300 ? c.getInputStream() : c.getErrorStream();
+        out.body = streamToString(in);
+        if (out.code < 200 || out.code >= 300) {
+            return out;
+        }
+        Logger.d("custom AI resp=" + shorten(out.body));
+        out.text = extractAiText(out.body, format);
+        out.ok = out.text != null && !out.text.isEmpty();
+        if (!out.ok) {
+            Logger.w("custom AI: reply carried no usable text | " + shorten(out.body));
+        }
+        return out;
+    }
+
+    /** Pull the translated text out of whichever envelope came back. */
+    private static String extractAiText(String resp, String format) {
+        try {
+            JSONObject o = new JSONObject(resp);
+            if (AI_ANTHROPIC.equals(format)) {
+                // {"content":[{"type":"text","text":"..."}]}
+                JSONArray content = o.optJSONArray("content");
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; content != null && i < content.length(); i++) {
+                    JSONObject part = content.optJSONObject(i);
+                    if (part != null && "text".equals(part.optString("type"))) {
+                        sb.append(part.optString("text", ""));
+                    }
+                }
+                return sb.length() == 0 ? null : clean(sb.toString());
+            }
+            if (AI_RESPONSES.equals(format)) {
+                // {"output":[{"type":"message","content":[{"type":"output_text","text":"..."}]}]}
+                JSONArray output = o.optJSONArray("output");
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; output != null && i < output.length(); i++) {
+                    JSONObject item = output.optJSONObject(i);
+                    if (item == null || !"message".equals(item.optString("type"))) {
+                        continue;
+                    }
+                    JSONArray parts = item.optJSONArray("content");
+                    for (int j = 0; parts != null && j < parts.length(); j++) {
+                        JSONObject part = parts.optJSONObject(j);
+                        if (part != null && "output_text".equals(part.optString("type"))) {
+                            sb.append(part.optString("text", ""));
+                        }
+                    }
+                }
+                if (sb.length() > 0) {
+                    return clean(sb.toString());
+                }
+                // Some gateways answer the responses shape with the chat envelope.
+                return chatEnvelopeText(o);
+            }
+            return chatEnvelopeText(o);
+        } catch (Throwable t) {
+            Logger.w("custom AI parse failed: " + t);
+            return null;
+        }
+    }
+
+    /** {@code choices[0].message.content} - the chat-completions envelope. */
+    private static String chatEnvelopeText(JSONObject o) {
+        JSONArray choices = o.optJSONArray("choices");
         if (choices == null || choices.length() == 0) {
             return null;
         }
-        JSONObject msg = choices.getJSONObject(0).optJSONObject("message");
+        JSONObject first = choices.optJSONObject(0);
+        JSONObject msg = first == null ? null : first.optJSONObject("message");
         return msg == null ? null : clean(msg.optString("content", null));
+    }
+
+    /**
+     * Manual connection test for the settings screen.
+     *
+     * <p>Reports the status code and the endpoint that produced it, so a failing
+     * setup says <em>which</em> of the several possible causes it is instead of
+     * silently doing nothing.</p>
+     *
+     * @return {@code {statusText, detail}}
+     */
+    public static String[] probeCustomAi() {
+        String endpoint = Prefs.aiEndpoint() == null ? "" : Prefs.aiEndpoint().trim();
+        String key = Prefs.aiKey();
+        String format = Prefs.aiFormat();
+        String model = Prefs.aiModel();
+        if (model == null || model.trim().isEmpty()) {
+            model = "gpt-4o-mini";
+        }
+        if (endpoint.isEmpty()) {
+            return new String[]{"未配置", "先填接口地址。"};
+        }
+        if (key == null || key.trim().isEmpty()) {
+            return new String[]{"未配置", "先填 API Key。"};
+        }
+
+        String system = renderPrompt(Prefs.aiPrompt(), "auto", Prefs.targetLang());
+        StringBuilder log = new StringBuilder();
+        for (String url : endpointCandidates(endpoint, format)) {
+            try {
+                Call r = aiCall(url, format, key.trim(), model, system, "Hello");
+                log.append(r.code).append("  ").append(url).append('\n');
+                if (r.ok) {
+                    RESOLVED.put(format + '\u0000' + endpoint, url);
+                    String preview = r.text.length() > 140
+                            ? r.text.substring(0, 140) + "…" : r.text;
+                    return new String[]{"通了（HTTP " + r.code + "）",
+                            log + "\n模型返回：\n" + preview};
+                }
+                log.append("     ").append(shorten(r.body)).append('\n');
+                if (r.code != 404) {
+                    return new String[]{"失败（HTTP " + r.code + "）", log.toString()};
+                }
+            } catch (Throwable t) {
+                log.append("!  ").append(url).append('\n');
+                log.append("     ").append(t).append('\n');
+            }
+        }
+        return new String[]{"失败", log.toString()};
     }
 
     // =========================================================== text utils
 
     static String normalizeEndpoint(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        String v = raw.trim();
-        if (v.isEmpty()) {
-            return "";
-        }
-        while (v.endsWith("/")) {
-            v = v.substring(0, v.length() - 1);
-        }
-        if (v.endsWith("/chat/completions") || v.endsWith("/completions")) {
-            return v;
-        }
-        return v + "/v1/chat/completions";
+        // Kept only so the old call sites keep compiling; superseded by
+        // endpointCandidates, which no longer doubles an existing /v1.
+        String[] c = endpointCandidates(raw, AI_CHAT);
+        return c.length == 0 ? "" : c[0];
     }
 
     private static String renderPrompt(String template, String from, String to) {

@@ -42,6 +42,9 @@ public final class Prefs {
     public static final String KEY_AI_MODEL = "ai_model";
     public static final String KEY_AI_PROMPT = "ai_prompt";
 
+    /** Which API shape the custom AI endpoint speaks. */
+    public static final String KEY_AI_FORMAT = "ai_format";
+
     public static final String KEY_BAIDU_APPID = "baidu_appid";
     public static final String KEY_BAIDU_KEY = "baidu_key";
     public static final String KEY_DEEPL_KEY = "deepl_key";
@@ -174,6 +177,11 @@ public final class Prefs {
 
     public static String aiPrompt() {
         return readString(KEY_AI_PROMPT, Translators.DEFAULT_AI_PROMPT);
+    }
+
+    /** API shape for the custom AI endpoint; see {@link Translators} for the names. */
+    public static String aiFormat() {
+        return readString(KEY_AI_FORMAT, Translators.AI_CHAT);
     }
 
     public static String baiduAppId() {
