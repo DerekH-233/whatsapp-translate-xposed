@@ -86,37 +86,40 @@ public class SettingsActivity extends Activity {
     private void buildHeader(LinearLayout root) {
         LinearLayout card = card(root);
 
-        TextView t = new TextView(this);
-        t.setText("WhatsApp 翻译助手");
-        t.setTextSize(22f);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(t);
-
+        // No title in the card: the action bar already names the app, and
+        // printing the same words twice in the first screenful is pure noise.
         TextView sub = new TextView(this);
-        sub.setText("把对方发来的聊天消息翻译成你设定的语言，译文以小字显示在原文下方。\n"
+        sub.setText("把对方发来的消息翻译成你设定的语言，译文以小字显示在原文下方。\n"
                 + "翻译接口可以选公开的，也可以填自己的 AI 接口。");
-        sub.setTextSize(13f);
-        sub.setTextColor(0xFF777777);
-        sub.setLineSpacing(0f, 1.35f);
-        sub.setPadding(0, dp(6), 0, dp(12));
+        sub.setTextSize(13.5f);
+        sub.setTextColor(0xFF666666);
+        sub.setLineSpacing(dp(4), 1.0f);
         card.addView(sub);
 
-        Button open = new Button(this);
+        TextView open = new TextView(this);
         open.setText("打开 WhatsApp");
+        open.setTextSize(15f);
+        open.setGravity(Gravity.CENTER);
+        open.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setColor(0xFF3F51B5);
+        open.setBackground(bg);
+        open.setTextColor(0xFFFFFFFF);
         open.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 openWhatsApp();
             }
         });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(14);
+        open.setLayoutParams(lp);
         card.addView(open);
 
-        TextView hint = new TextView(this);
-        hint.setTextSize(12f);
-        hint.setTextColor(0xFF888888);
-        hint.setPadding(0, dp(8), 0, 0);
-        hint.setText("这里是模块的设置入口，装好后从桌面图标或 LSPosed 模块列表进入都可以。");
-        card.addView(hint);
+        hint(card, "这里是模块的设置入口，从桌面图标或 LSPosed 模块列表进入都可以。");
     }
 
     private void openWhatsApp() {
@@ -139,7 +142,7 @@ public class SettingsActivity extends Activity {
     private void buildSwitches(LinearLayout root) {
         section(root, "翻译开关");
         check(root, "翻译收到的消息", Prefs.KEY_INCOMING_ENABLED, true);
-        hint(root, "打开后，别人发来的消息会在气泡里原文下方多出一行小字译文。关掉则只保留原文。");
+        hint(root, "打开后，收到的消息会在原文下方多出一行小字译文；关掉就只留原文。");
     }
 
     // ============================================================= engine
@@ -173,8 +176,8 @@ public class SettingsActivity extends Activity {
         root.addView(engineKeyBox);
         rebuildEngineKeys(Engine.of(Prefs.engine()));
 
-        hint(root, "前 4 个是公开接口，不需要注册也不需要密钥，装上就能用，建议先用 Google。\n"
-                + "后 4 个要用你自己的账号：百度、DeepL、微软、以及任意 OpenAI 兼容的 AI 接口（如 DeepSeek）。");
+        note(root, "· 前 4 个是公开接口 —— 不用注册、不用密钥，装上就能用，先用这个。\n"
+                + "· 后 4 个要用你自己的账号 —— 百度、DeepL、微软，以及任意 OpenAI 兼容的 AI 接口（DeepSeek 等）。");
     }
 
     // ========================================================= custom AI UI
@@ -226,12 +229,13 @@ public class SettingsActivity extends Activity {
         });
         parent.addView(value);
 
-        hint(parent, "三种格式服务端不一样，选错了会返回 404：\n"
-                + "· Chat Completions —— POST .../v1/chat/completions，用 Authorization 鉴权。"
-                + "绝大多数服务和第三方中转站都是这个\n"
-                + "· Responses —— POST .../v1/responses，OpenAI 的新接口\n"
-                + "· Anthropic Messages —— POST .../v1/messages，system 单独一个字段，"
-                + "用 x-api-key 鉴权。DeepSeek 的地址填 https://api.deepseek.com/anthropic");
+        note(parent, "服务端不一样，选错了会返回 404。\n"
+                + "\n"
+                + "· Chat Completions —— POST .../v1/chat/completions，Authorization 鉴权。\n"
+                + "    绝大多数服务和第三方中转站都是这个。\n"
+                + "· Responses —— POST .../v1/responses，OpenAI 的新接口。\n"
+                + "· Anthropic Messages —— POST .../v1/messages，system 是单独的字段，x-api-key 鉴权。\n"
+                + "    DeepSeek 的地址填 https://api.deepseek.com/anthropic");
     }
 
     private String aiFormatLabel(String format) {
@@ -328,10 +332,12 @@ public class SettingsActivity extends Activity {
         });
         parent.addView(btn);
 
-        hint(parent, "向接口要一份「这条 Key 能用的模型」清单，点一个就自动填好，省得手打。\n"
-                + "注意区分两种错误：模型名打错通常是 400 / 404（model_not_found），"
-                + "而 403（Access to model denied）是这条 Key 没有该模型的权限——"
-                + "去中转站后台把模型加进令牌允许列表。");
+        note(parent, "向接口要一份「这条 Key 能用的模型」清单，点一个就自动填好。\n"
+                + "\n"
+                + "两种错误容易混淆：\n"
+                + "· 400 / 404 model_not_found —— 模型名打错了。\n"
+                + "· 403 Access to model denied —— 这条 Key 没有该模型的权限，"
+                + "要去中转站后台把它加进令牌允许列表。");
     }
 
     private static boolean contains(String[] arr, String v) {
@@ -381,10 +387,11 @@ public class SettingsActivity extends Activity {
         });
         parent.addView(btn);
 
-        hint(parent, "会真的发一条 \"Hello\" 过去，把 HTTP 状态码和接口地址都显示出来，"
-                + "方便判断是地址、Key、模型名还是格式的问题。\n"
-                + "404 通常表示地址或格式不对；401 表示 Key 不对；"
-                + "400 多半是模型名写错了。");
+        note(parent, "真的发一条 \"Hello\" 过去，把状态码和试过的地址都列出来。\n"
+                + "\n"
+                + "· 404 —— 地址或 API 格式不对\n"
+                + "· 401 —— Key 不对\n"
+                + "· 400 —— 模型名写错");
     }
 
     private void rebuildEngineKeys(Engine engine) {
@@ -454,10 +461,12 @@ public class SettingsActivity extends Activity {
         pickerRow(root, "翻译成", LocaleInfo.labelOf(Prefs.outLang()) + "（"
                 + Prefs.outLang() + "）", Prefs.KEY_OUT_LANG, false);
 
-        hint(root, "在聊天输入框里打好字，长按发送键，草稿会变成译文，再点一下发送键就发出去了。\n"
-                + "长按第二次可以还原成你自己写的原文，一个字都不会丢。\n"
-                + "这里是「我打的话翻译成什么语言」，和上面那个「把别人消息翻译成什么语言」正好相反：\n"
-                + "上面管收，这里管发。默认英语，做外贸的话通常不用改。");
+        note(root, "在聊天框里打好字，长按发送键，草稿变成译文；点发送键才发出去。再长按一次还原成原文。\n"
+                + "\n"
+                + "注意两者方向相反：\n"
+                + "· 译文语言 —— 别人的消息翻译成什么语言（收）\n"
+                + "· 输入框翻译 —— 我打的话翻译成什么语言（发）\n"
+                + "默认英语，做外贸通常不用改。");
     }
 
     private void pickerRow(LinearLayout parent, String title, final String currentLabel,
@@ -533,7 +542,7 @@ public class SettingsActivity extends Activity {
             }
         });
         root.addView(colorPreview);
-        hint(root, "译文是原文下面的小字，点上面的色块就能换颜色。默认灰色，和原文区分得开又不抢眼。");
+        hint(root, "译文是原文下面的小字，点上面的色块换颜色。");
 
         final TextView scaleLabel = new TextView(this);
         scaleLabel.setTextSize(15f);
@@ -583,8 +592,8 @@ public class SettingsActivity extends Activity {
         pickerRow(root, "我的国家/地区（用于判断对方是否与我在同一地区）",
                 "+" + Prefs.myRegion(), Prefs.KEY_MY_REGION, true);
 
-        hint(root, "按对方手机号的国家代码离线查表得出，查表过程不发网络请求。\n"
-                + "覆盖 " + LocaleInfo.allAreaCodes().size() + " 个国家/地区区号，含语言、货币和当地时区。");
+        note(root, "按对方号码的国家代码离线查表，查表过程不发网络请求。\n"
+                + "覆盖 " + LocaleInfo.allAreaCodes().size() + " 个区号，含语言、货币和当地时区。");
     }
 
     // ============================================================== debug
@@ -731,16 +740,56 @@ public class SettingsActivity extends Activity {
         tv.setTextSize(13f);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setTextColor(0xFF3F51B5);
-        tv.setPadding(0, dp(18), 0, dp(6));
+        tv.setPadding(0, dp(24), 0, dp(8));
         parent.addView(tv);
+
+        // A hairline under each heading: headings alone do not group anything
+        // when the rows below them are the same weight as everything else.
+        View rule = new View(this);
+        rule.setBackgroundColor(0x14000000);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        rule.setLayoutParams(lp);
+        parent.addView(rule);
     }
 
+    /** One line of clarification, tucked directly under the control it belongs to. */
     private void hint(LinearLayout parent, String text) {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(12f);
-        tv.setTextColor(0xFF888888);
-        tv.setPadding(0, dp(4), 0, 0);
+        tv.setTextColor(0xFF8A8A8A);
+        tv.setLineSpacing(dp(3), 1.0f);
+        tv.setPadding(0, dp(6), 0, dp(2));
+        parent.addView(tv);
+    }
+
+    /**
+     * Several points of explanation, set apart as its own block.
+     *
+     * <p>Deliberately not used everywhere: a screen where every note is a boxed
+     * block reads as noise, and one where every note is loose grey text reads as
+     * a wall. Short stays plain, long gets a block, and the two never look the
+     * same.</p>
+     */
+    private void note(LinearLayout parent, String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(12.5f);
+        tv.setTextColor(0xFF5A5A5A);
+        tv.setLineSpacing(dp(4), 1.0f);
+        int pad = dp(12);
+        tv.setPadding(pad, pad, pad, pad);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setColor(0xFFF4F5F7);
+        tv.setBackground(bg);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        tv.setLayoutParams(lp);
         parent.addView(tv);
     }
 
