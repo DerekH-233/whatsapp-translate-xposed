@@ -544,6 +544,9 @@ public class SettingsActivity extends Activity {
         root.addView(colorPreview);
         hint(root, "译文是原文下面的小字，点上面的色块换颜色。");
 
+        note(root, "改动会自动重画屏幕上已有的消息，一般不用做什么。\n"
+                + "如果个别消息没跟着变，退出聊天再进来一下即可。");
+
         final TextView scaleLabel = new TextView(this);
         scaleLabel.setTextSize(15f);
         scaleLabel.setText("译文大小：" + Math.round(Prefs.translationScale() * 100) + "%");
