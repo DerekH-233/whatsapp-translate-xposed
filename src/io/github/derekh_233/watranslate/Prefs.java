@@ -163,6 +163,19 @@ public final class Prefs {
         return readBoolean(KEY_INPUT_TRANSLATE_ENABLED, true);
     }
 
+    /**
+     * A fingerprint of everything that decides how a rendered translation looks.
+     *
+     * <p>Cheap to compare, so the renderer can notice a style edit and repaint
+     * what is already on screen. Without that, a colour change only reaches
+     * messages that happen to be re-bound afterwards, which reads as "the setting
+     * did nothing" until WhatsApp is restarted.</p>
+     */
+    public static String styleSignature() {
+        return Integer.toHexString(translationColor()) + '/' + translationScale()
+                + '/' + translationItalic();
+    }
+
     public static String aiEndpoint() {
         return readString(KEY_AI_ENDPOINT, "");
     }

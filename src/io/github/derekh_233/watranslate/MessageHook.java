@@ -70,6 +70,8 @@ public final class MessageHook {
 
     private static volatile boolean installed;
     private static volatile boolean idsResolved;
+    private static volatile boolean styleWatchStarted;
+    private static volatile String APPLIED_STYLE;
     private static volatile List<Integer> replyIds = Collections.emptyList();
     private static volatile List<Integer> quoteIds = Collections.emptyList();
 
@@ -135,6 +137,79 @@ public final class MessageHook {
         }
         Logger.w("installed on " + pkg + "; " + hooked + " setText overload(s); replyIds="
                 + replyIds + " quoteIds=" + quoteIds);
+        startStyleWatch();
+    }
+
+    /**
+     * Repaint what is already on screen when the look of the translation changes.
+     *
+     * <p>A style edit does reach the hooked process - the framework hands back
+     * fresh values - but only messages that get re-bound afterwards pick it up.
+     * Everything already rendered keeps the old spans, so changing the colour of
+     * a chat you are looking at appears to do nothing until WhatsApp restarts and
+     * rebuilds every row. Watching the style fingerprint and repainting the
+     * tracked views closes that gap.</p>
+     *
+     * <p>Idles at a slow tick while nothing is on screen, and the check itself is
+     * a string compare, so the cost is negligible next to a scrolling chat.</p>
+     */
+    private static void startStyleWatch() {
+        if (styleWatchStarted) {
+            return;
+        }
+        styleWatchStarted = true;
+        MAIN.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!STATES.isEmpty()) {
+                        String now = Prefs.styleSignature();
+                        if (APPLIED_STYLE != null && !APPLIED_STYLE.equals(now)) {
+                            APPLIED_STYLE = now;
+                            rerenderTracked();
+                        } else if (APPLIED_STYLE == null) {
+                            APPLIED_STYLE = now;
+                        }
+                    }
+                } catch (Throwable t) {
+                    Logger.d("style watch skipped: " + t);
+                }
+                MAIN.postDelayed(this, STATES.isEmpty() ? 4000L : 1200L);
+            }
+        });
+    }
+
+    /** Re-apply the current style to every view we still hold a source for. */
+    private static void rerenderTracked() {
+        List<TextView> views;
+        synchronized (STATES) {
+            views = new ArrayList<TextView>(STATES.keySet());
+        }
+        String engine = Prefs.engine();
+        String target = Prefs.targetLang();
+        int repainted = 0;
+        for (TextView tv : views) {
+            try {
+                if (tv == null || !tv.isAttachedToWindow()) {
+                    continue;
+                }
+                ViewState st = STATES.get(tv);
+                if (st == null || st.source == null || st.inflight) {
+                    continue;
+                }
+                String cached = CACHE.get(engine + '\u0000' + target + '\u0000' + st.source);
+                if (cached == null) {
+                    continue;
+                }
+                render(tv, st, st.source, cached);
+                repainted++;
+            } catch (Throwable t) {
+                Logger.d("repaint skipped: " + t);
+            }
+        }
+        if (repainted > 0) {
+            Logger.d("repainted " + repainted + " message(s) after a style change");
+        }
     }
 
     /** The {@code setText} overloads that take text; the int/char[] ones cannot match. */
