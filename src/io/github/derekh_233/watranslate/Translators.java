@@ -12,6 +12,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -480,7 +481,11 @@ public final class Translators {
                 Logger.d("custom AI: " + url + " answered 404, trying the other spelling");
                 continue;
             }
-            Logger.w("custom AI HTTP " + r.code + " | " + url + " | " + shorten(r.body));
+            // The model name is in the message on purpose: it is the one field
+            // people mistype, and seeing it next to the server's complaint is
+            // what makes a 400/403 self-diagnosing.
+            Logger.w("custom AI HTTP " + r.code + " | model=" + model + " | " + url
+                    + " | " + shorten(r.body));
             return null;
         }
         return null;
@@ -600,6 +605,142 @@ public final class Translators {
         JSONObject first = choices.optJSONObject(0);
         JSONObject msg = first == null ? null : first.optJSONObject("message");
         return msg == null ? null : clean(msg.optString("content", null));
+    }
+
+    /**
+     * Catalogue endpoint candidates.
+     *
+     * <p>A relay answers {@code /models} with exactly the names this key is
+     * allowed to use, which is the only reliable way to avoid guessing a model
+     * name - and a name the key is not entitled to comes back as
+     * {@code 403 Access to model denied}, which looks nothing like the
+     * {@code model_not_found} a typo produces.</p>
+     */
+    private static String[] modelsCandidates(String raw) {
+        String base = raw == null ? "" : raw.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        for (String tail : new String[]{"/chat/completions", "/responses", "/messages"}) {
+            if (base.endsWith(tail)) {
+                base = base.substring(0, base.length() - tail.length());
+                break;
+            }
+        }
+        if (base.isEmpty()) {
+            return new String[0];
+        }
+        String last = base.substring(base.lastIndexOf('/') + 1);
+        if (last.matches("v\\d+.*")) {
+            return new String[]{base + "/models"};
+        }
+        return new String[]{base + "/v1/models", base + "/models"};
+    }
+
+    /** Outcome of a model-catalogue lookup. */
+    public static final class ModelList {
+        public String[] ids = new String[0];
+        public String status = "";
+        public String detail = "";
+    }
+
+    /** Ask the endpoint which models this key may use. */
+    public static ModelList fetchModels() {
+        ModelList out = new ModelList();
+        String endpoint = Prefs.aiEndpoint() == null ? "" : Prefs.aiEndpoint().trim();
+        String key = Prefs.aiKey();
+        String format = Prefs.aiFormat();
+        if (endpoint.isEmpty()) {
+            out.status = "未配置";
+            out.detail = "先填接口地址。";
+            return out;
+        }
+        if (key == null || key.trim().isEmpty()) {
+            out.status = "未配置";
+            out.detail = "先填 API Key。";
+            return out;
+        }
+
+        StringBuilder log = new StringBuilder();
+        for (String url : modelsCandidates(endpoint)) {
+            try {
+                HttpURLConnection c = open(url, "GET");
+                c.setRequestProperty("Accept", "application/json");
+                if (AI_ANTHROPIC.equals(format)) {
+                    c.setRequestProperty("x-api-key", key.trim());
+                    c.setRequestProperty("anthropic-version", "2023-06-01");
+                    c.setRequestProperty("Authorization", "Bearer " + key.trim());
+                } else {
+                    c.setRequestProperty("Authorization", "Bearer " + key.trim());
+                }
+                int code = c.getResponseCode();
+                String body = streamToString(
+                        code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
+                log.append(code).append("  ").append(url).append('\n');
+                if (code < 200 || code >= 300) {
+                    log.append("     ").append(shorten(body)).append('\n');
+                    continue;
+                }
+                String[] ids = parseModelIds(body);
+                if (ids.length == 0) {
+                    log.append("     返回里没有找到模型列表\n");
+                    continue;
+                }
+                out.ids = ids;
+                out.status = "拿到 " + ids.length + " 个模型";
+                out.detail = log.toString();
+                return out;
+            } catch (Throwable t) {
+                log.append("!  ").append(url).append('\n');
+                log.append("     ").append(t).append('\n');
+            }
+        }
+        out.status = "失败";
+        out.detail = log.toString();
+        return out;
+    }
+
+    /** Accepts the shapes relays actually return, not just the documented one. */
+    private static String[] parseModelIds(String body) {
+        try {
+            String t = body == null ? "" : body.trim();
+            JSONArray arr = null;
+            if (t.startsWith("[")) {
+                arr = new JSONArray(t);
+            } else if (t.startsWith("{")) {
+                JSONObject o = new JSONObject(t);
+                arr = o.optJSONArray("data");
+                if (arr == null) {
+                    arr = o.optJSONArray("models");
+                }
+            }
+            if (arr == null) {
+                return new String[0];
+            }
+            List<String> ids = new ArrayList<String>();
+            for (int i = 0; i < arr.length(); i++) {
+                Object e = arr.opt(i);
+                if (e instanceof JSONObject) {
+                    JSONObject o = (JSONObject) e;
+                    String id = o.optString("id", "");
+                    if (id.isEmpty()) {
+                        id = o.optString("name", "");
+                    }
+                    if (!id.isEmpty() && !ids.contains(id)) {
+                        ids.add(id);
+                    }
+                } else if (e instanceof String) {
+                    String s = (String) e;
+                    if (!s.isEmpty() && !ids.contains(s)) {
+                        ids.add(s);
+                    }
+                }
+            }
+            Collections.sort(ids);
+            return ids.toArray(new String[0]);
+        } catch (Throwable t) {
+            return new String[0];
+        }
     }
 
     /**

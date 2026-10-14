@@ -243,6 +243,106 @@ public class SettingsActivity extends Activity {
         return AI_FORMAT_LABELS[0];
     }
 
+    /**
+     * Pulls the catalogue the endpoint actually serves and lets the user pick.
+     *
+     * <p>This exists because a model the key is not entitled to answers
+     * {@code 403 Access to model denied}, which reads like a permissions problem
+     * and sends people hunting for a typo that is not there. The catalogue lists
+     * the names this key may really use.</p>
+     */
+    private void aiModelFetchRow(LinearLayout parent, final Engine engine) {
+        final TextView btn = new TextView(this);
+        btn.setText("拉取模型列表");
+        btn.setTextSize(15f);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setStroke(dp(1), 0x33000000);
+        bg.setColor(0xFFE8E8E8);
+        btn.setBackground(bg);
+        btn.setTextColor(0xFF222222);
+        btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                btn.setEnabled(false);
+                btn.setText("拉取中…");
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final Translators.ModelList r = Translators.fetchModels();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                btn.setEnabled(true);
+                                btn.setText("拉取模型列表");
+                                if (r.ids.length == 0) {
+                                    new AlertDialog.Builder(SettingsActivity.this)
+                                            .setTitle("拉取失败")
+                                            .setMessage(r.detail)
+                                            .setPositiveButton("知道了", null)
+                                            .show();
+                                    return;
+                                }
+                                String current = sp.getString(Prefs.KEY_AI_MODEL, "");
+                                new AlertDialog.Builder(SettingsActivity.this)
+                                        .setTitle(r.status + "（点一个设为模型名）")
+                                        .setItems(r.ids, new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface d, int which) {
+                                                Map<String, Object> m =
+                                                        new HashMap<String, Object>();
+                                                m.put(Prefs.KEY_AI_MODEL, r.ids[which]);
+                                                save(m);
+                                                rebuildEngineKeys(engine);
+                                            }
+                                        })
+                                        .setNeutralButton("详情", new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface d, int i) {
+                                                new AlertDialog.Builder(SettingsActivity.this)
+                                                        .setTitle("接口列表")
+                                                        .setMessage(r.detail)
+                                                        .setPositiveButton("知道了", null)
+                                                        .show();
+                                            }
+                                        })
+                                        .show();
+                                if (!current.isEmpty() && !contains(r.ids, current)) {
+                                    new AlertDialog.Builder(SettingsActivity.this)
+                                            .setTitle("注意：当前模型名不在列表里")
+                                            .setMessage("你填的是「" + current + "」，但这条 Key 能用的模型里"
+                                                    + "没有这个名字。\n\n"
+                                                    + "这种时候服务器常常回 403（Access to model denied），"
+                                                    + "看起来像没权限，其实是名字对不上。"
+                                                    + "从列表里挑一个吧。")
+                                            .setPositiveButton("知道了", null)
+                                            .show();
+                                }
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+        parent.addView(btn);
+
+        hint(parent, "向接口要一份「这条 Key 能用的模型」清单，点一个就自动填好，省得手打。\n"
+                + "注意区分两种错误：模型名打错通常是 400 / 404（model_not_found），"
+                + "而 403（Access to model denied）是这条 Key 没有该模型的权限——"
+                + "去中转站后台把模型加进令牌允许列表。");
+    }
+
+    private static boolean contains(String[] arr, String v) {
+        for (String s : arr) {
+            if (s.equals(v)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void aiTestRow(LinearLayout parent) {
         final TextView btn = new TextView(this);
         btn.setText("测试连接");
@@ -296,6 +396,7 @@ public class SettingsActivity extends Activity {
                         Prefs.KEY_AI_ENDPOINT, "https://api.deepseek.com");
                 edit(engineKeyBox, "API Key", Prefs.KEY_AI_KEY, "sk-...");
                 edit(engineKeyBox, "模型名", Prefs.KEY_AI_MODEL, "deepseek-flash / gpt-4o-mini");
+                aiModelFetchRow(engineKeyBox, engine);
                 aiTestRow(engineKeyBox);
                 edit(engineKeyBox, "自定义提示词（发给 AI 的系统提示；${toCode} 会替换成上面的目标语言）",
                         Prefs.KEY_AI_PROMPT, Translators.DEFAULT_AI_PROMPT, true);
