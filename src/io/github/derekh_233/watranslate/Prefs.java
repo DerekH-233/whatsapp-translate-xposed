@@ -37,6 +37,9 @@ public final class Prefs {
     /** Long-press the send button to translate the draft. */
     public static final String KEY_INPUT_TRANSLATE_ENABLED = "input_translate_enabled";
 
+    /** Aim the outgoing language at whoever the chat is with. */
+    public static final String KEY_FOLLOW_PEER = "follow_peer";
+
     public static final String KEY_AI_ENDPOINT = "ai_endpoint";
     public static final String KEY_AI_KEY = "ai_key";
     public static final String KEY_AI_MODEL = "ai_model";
@@ -174,6 +177,17 @@ public final class Prefs {
     public static String styleSignature() {
         return Integer.toHexString(translationColor()) + '/' + translationScale()
                 + '/' + translationItalic();
+    }
+
+    /**
+     * Whether the outgoing language should follow the person being written to.
+     *
+     * <p>On by default: talking to several countries is the case this exists for,
+     * and when the peer cannot be resolved the configured {@link #outLang()} is
+     * used unchanged.</p>
+     */
+    public static boolean followPeer() {
+        return readBoolean(KEY_FOLLOW_PEER, true);
     }
 
     public static String aiEndpoint() {

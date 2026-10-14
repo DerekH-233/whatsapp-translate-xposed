@@ -33,6 +33,14 @@ public class ModuleEntry extends XposedModule {
         Prefs.attach(this);
         log(Log.INFO, TAG, "loaded into process " + param.getProcessName()
                 + " (api " + getApiVersion() + ")");
+        // The locale tables live in this module's own assets. Loading them here
+        // has to read them out of the module APK, because the only Context in a
+        // hooked process belongs to the host app.
+        try {
+            LocaleInfo.loadFromApk(getModuleApplicationInfo().sourceDir);
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "locale tables not loaded", t);
+        }
     }
 
     /**
@@ -66,6 +74,11 @@ public class ModuleEntry extends XposedModule {
             InputTranslator.install(this, pkg);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "InputTranslator install failed", t);
+        }
+        try {
+            ChatContext.install(this, loader);
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "ChatContext install failed", t);
         }
     }
 }

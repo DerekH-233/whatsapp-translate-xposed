@@ -458,15 +458,20 @@ public class SettingsActivity extends Activity {
 
         check(root, "长按发送键翻译我打的字", Prefs.KEY_INPUT_TRANSLATE_ENABLED, true);
 
-        pickerRow(root, "翻译成", LocaleInfo.labelOf(Prefs.outLang()) + "（"
+        check(root, "目标语言跟随对方（按对方号码自动判断）", Prefs.KEY_FOLLOW_PEER, true);
+
+        pickerRow(root, "对方认不出来时翻译成", LocaleInfo.labelOf(Prefs.outLang()) + "（"
                 + Prefs.outLang() + "）", Prefs.KEY_OUT_LANG, false);
 
         note(root, "在聊天框里打好字，长按发送键，草稿变成译文；点发送键才发出去。再长按一次还原成原文。\n"
                 + "\n"
-                + "注意两者方向相反：\n"
+                + "默认跟着对方走：按对方号码的国家代码查表，对方是哪个国家的就用哪种语言，"
+                + "遇到多个国家也不用切来切去。\n"
+                + "群聊、以及对方号码被隐藏的情况判断不出来，就用下面那个语言。\n"
+                + "\n"
+                + "注意方向正好相反：\n"
                 + "· 译文语言 —— 别人的消息翻译成什么语言（收）\n"
-                + "· 输入框翻译 —— 我打的话翻译成什么语言（发）\n"
-                + "默认英语，做外贸通常不用改。");
+                + "· 输入框翻译 —— 我打的话翻译成什么语言（发）");
     }
 
     private void pickerRow(LinearLayout parent, String title, final String currentLabel,

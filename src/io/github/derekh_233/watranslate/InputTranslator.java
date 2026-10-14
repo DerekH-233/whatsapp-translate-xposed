@@ -177,7 +177,7 @@ public final class InputTranslator {
         d.inflight = true;
 
         final Draft draft = d;
-        final String target = Prefs.outLang();
+        final String target = resolveTarget();
         toast(box, MSG_WORKING);
 
         POOL.execute(new Runnable() {
@@ -208,12 +208,40 @@ public final class InputTranslator {
                         draft.translated = out;
                         box.setText(out);
                         box.setSelection(box.getText().length());
-                        toast(box, MSG_DONE);
+                        toast(box, doneMessage(target));
                     }
                 });
             }
         });
         return true;
+    }
+
+    /**
+     * Which language to aim the draft at.
+     *
+     * <p>Follows the person being written to when that can be worked out, so
+     * talking to several countries needs no switching at all. Falls back to the
+     * configured language for groups, for the number-hiding {@code @lid}
+     * identifiers, and whenever the dialling code is not in the table.</p>
+     */
+    private static String resolveTarget() {
+        if (Prefs.followPeer()) {
+            String peerLanguage = ChatContext.peerLanguage();
+            if (peerLanguage != null && !peerLanguage.isEmpty()) {
+                return peerLanguage;
+            }
+        }
+        return Prefs.outLang();
+    }
+
+    /** Success message, naming the peer when one was resolved. */
+    private static String doneMessage(String target) {
+        String label = LocaleInfo.labelOf(target);
+        String peer = ChatContext.peerDescription();
+        if (peer == null) {
+            return "已翻译成" + label + "，长按发送键可还原";
+        }
+        return "已翻译成" + label + "（对方 " + peer + "），长按可还原";
     }
 
     // ------------------------------------------------------------ view ids

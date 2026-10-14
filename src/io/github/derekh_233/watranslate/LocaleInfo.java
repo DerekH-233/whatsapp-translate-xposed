@@ -70,23 +70,82 @@ public final class LocaleInfo {
         }
         loaded = true;
         try {
-            JSONObject area = new JSONObject(readAsset(ctx, "regions.json"));
-            Iterator<String> it = area.keys();
-            while (it.hasNext()) {
-                String k = it.next();
-                AREA.put(k.replace("+", ""), area.optJSONObject(k));
-            }
-            JSONObject lang = new JSONObject(readAsset(ctx, "languages.json"));
-            Iterator<String> it2 = lang.keys();
-            while (it2.hasNext()) {
-                String k = it2.next();
-                LANG.put(k.toLowerCase(Locale.US), lang.optJSONObject(k));
-            }
-            Logger.d("locale tables loaded: " + AREA.size() + " dialling codes, "
-                    + LANG.size() + " languages");
+            parse(readAsset(ctx, "regions.json"), readAsset(ctx, "languages.json"));
         } catch (Throwable t) {
             Logger.w("locale table load failed: " + t);
         }
+    }
+
+    /**
+     * Load the tables inside a hooked process, straight out of the module's own
+     * APK.
+     *
+     * <p>{@link #load(Context)} is no use there: the only Context available
+     * belongs to the host app, so {@code getAssets()} would open WhatsApp's
+     * assets. The module's APK is world-readable at its installed path, so the
+     * entries can just be read from the zip - which also avoids reaching for
+     * {@code AssetManager.addAssetPath}, a hidden API that new Android releases
+     * restrict.</p>
+     */
+    public static synchronized void loadFromApk(String apkPath) {
+        if (loaded) {
+            return;
+        }
+        loaded = true;
+        java.util.zip.ZipFile zf = null;
+        try {
+            zf = new java.util.zip.ZipFile(apkPath);
+            parse(readEntry(zf, "assets/regions.json"), readEntry(zf, "assets/languages.json"));
+        } catch (Throwable t) {
+            Logger.w("locale tables unavailable in this process: " + t);
+        } finally {
+            if (zf != null) {
+                try {
+                    zf.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    private static String readEntry(java.util.zip.ZipFile zf, String name) throws Exception {
+        java.util.zip.ZipEntry e = zf.getEntry(name);
+        if (e == null) {
+            return null;
+        }
+        InputStream in = zf.getInputStream(e);
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bos.write(buf, 0, n);
+        }
+        in.close();
+        byte[] all = bos.toByteArray();
+        int start = (all.length > 3 && (all[0] & 0xFF) == 0xEF && (all[1] & 0xFF) == 0xBB
+                && (all[2] & 0xFF) == 0xBF) ? 3 : 0;
+        return new String(all, start, all.length - start, "UTF-8");
+    }
+
+    private static void parse(String regionsJson, String languagesJson) throws Exception {
+        if (regionsJson == null || languagesJson == null) {
+            Logger.w("locale tables missing from the module apk");
+            return;
+        }
+        JSONObject area = new JSONObject(regionsJson);
+        Iterator<String> it = area.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            AREA.put(k.replace("+", ""), area.optJSONObject(k));
+        }
+        JSONObject lang = new JSONObject(languagesJson);
+        Iterator<String> it2 = lang.keys();
+        while (it2.hasNext()) {
+            String k = it2.next();
+            LANG.put(k.toLowerCase(Locale.US), lang.optJSONObject(k));
+        }
+        Logger.d("locale tables loaded: " + AREA.size() + " dialling codes, "
+                + LANG.size() + " languages");
     }
 
     private static String readAsset(Context ctx, String name) throws Exception {

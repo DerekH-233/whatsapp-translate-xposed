@@ -16,6 +16,24 @@
 4. 防递归使用 `ThreadLocal` 标记；防 view 复用错乱用一张以 view 为弱键的状态表保存源文快照，回写前比对（现代 API 不再提供附加字段）
 5. 相同文本、引擎与目标语言的组合只请求一次
 
+### 会话识别
+
+发消息时要知道对方是哪国人，才能自动选用对方那种语言。
+
+1. 挂 `Activity.onCreate(Bundle)`，只处理类名含 `Conversation` 的页面
+2. 该页面把目标会话放在 intent 的 `jid` extra 里，形如
+   `8613800000000@s.whatsapp.net`；群聊是 `...@g.us`，隐藏号码是 `...@lid`
+3. 取号码部分交给 `LocaleInfo.forPhone`，由离线表得出国家、语言、货币、当地时间
+4. 群聊与 `@lid` 没有单一国家，直接留空，调用方回退到设置里指定的语言
+
+整套推导是**每次实时做的，不落任何存储**——这一点是刻意的：框架给被 hook 一侧的
+远程配置是只读的，而 libxposed 没有反向通道能把数据送回模块 App，所以任何
+"在聊天界面里改设置"的方案都无法持久化。实时推导绕开了这个限制。
+
+会话进程里没有模块自己的 Context，`getAssets()` 取到的是宿主 App 的资源，
+因此 `LocaleInfo.loadFromApk()` 直接从模块 APK 的 zip 里读 `assets/*.json`。
+这样也避开了 `AssetManager.addAssetPath` 这个在新版 Android 上受限的隐藏 API。
+
 ### 输入框翻译
 
 复用发送键本来就有的长按，不新增任何控件，因此不碰 WhatsApp 的视图树、也没有浮窗。
@@ -128,6 +146,7 @@ src/io/github/derekh_233/watranslate/
   ModuleEntry.java           XposedModule 子类，仅对 com.whatsapp 与 com.whatsapp.w4b 生效
   MessageHook.java           核心：setText 钩子与译文渲染
   InputTranslator.java       长按发送键翻译输入框草稿
+  ChatContext.java           识别当前会话，解析对方国家与语言
   Translators.java           8 个引擎的实现
   Engine.java                引擎枚举
   LocaleInfo.java            国家、语言、货币与当地时间
