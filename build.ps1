@@ -143,8 +143,8 @@ Say 'aapt2 link'
     --java $genDir `
     --min-sdk-version 29 `
     --target-sdk-version 34 `
-    --version-code 6 `
-    --version-name 1.2.3 `
+    --version-code 7 `
+    --version-name 1.3.0 `
     -o $outApk `
     $flatZip
 if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed' }
