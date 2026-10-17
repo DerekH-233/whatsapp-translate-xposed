@@ -8,6 +8,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.lang.reflect.Method;
@@ -70,8 +71,8 @@ public final class InputTranslator {
     private static final ExecutorService POOL = Executors.newFixedThreadPool(2);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
-    private static final Map<EditText, Draft> DRAFTS =
-            Collections.synchronizedMap(new WeakHashMap<EditText, Draft>());
+    private static final Map<TextView, Draft> DRAFTS =
+            Collections.synchronizedMap(new WeakHashMap<TextView, Draft>());
 
     private static final AtomicInteger LOGGED = new AtomicInteger();
 
@@ -145,24 +146,41 @@ public final class InputTranslator {
             Logger.w("send button held but no input box found nearby");
             return false;
         }
+        if (TextUtils.isEmpty(box.getText())) {
+            return false;
+        }
+        translateDraft(box);
+        return true;
+    }
+
+    /**
+     * Translate the draft, or put the original back if the draft is already a
+     * translation. Used by both the pills and the long-press on the send button.
+     */
+    static void translateDraft(final TextView box) {
+        if (box == null) {
+            return;
+        }
         CharSequence cs = box.getText();
         if (TextUtils.isEmpty(cs)) {
-            return false;
+            toast(box, "输入框是空的");
+            return;
         }
         final String current = cs.toString();
         if (current.trim().isEmpty()) {
-            return false;
+            toast(box, "输入框是空的");
+            return;
         }
 
-        // Second hold on an untouched translation gives the user their words back.
+        // Second use on an untouched translation gives the user their words back.
         Draft existing = DRAFTS.get(box);
         if (existing != null && existing.translated != null
                 && existing.translated.equals(current)) {
             DRAFTS.remove(box);
             box.setText(existing.original);
-            box.setSelection(box.getText().length());
+            moveCaretToEnd(box);
             toast(box, MSG_RESTORED);
-            return true;
+            return;
         }
 
         Draft d = existing;
@@ -171,13 +189,14 @@ public final class InputTranslator {
             DRAFTS.put(box, d);
         }
         if (d.inflight) {
-            return true;
+            return;
         }
         d.original = current;
         d.inflight = true;
 
         final Draft draft = d;
         final String target = resolveTarget();
+        final String engine = Prefs.outEngine();
         toast(box, MSG_WORKING);
 
         POOL.execute(new Runnable() {
@@ -185,7 +204,7 @@ public final class InputTranslator {
             public void run() {
                 String result = null;
                 try {
-                    result = Translators.translate(current, "auto", target);
+                    result = Translators.translate(current, "auto", target, engine);
                 } catch (Throwable t) {
                     Logger.w("input translate threw: " + t);
                 }
@@ -207,24 +226,44 @@ public final class InputTranslator {
                         }
                         draft.translated = out;
                         box.setText(out);
-                        box.setSelection(box.getText().length());
+                        moveCaretToEnd(box);
                         toast(box, doneMessage(target));
                     }
                 });
             }
         });
-        return true;
+    }
+
+    /**
+     * Put the caret after the new text so typing can continue.
+     *
+     * <p>{@code setSelection} is declared on EditText, not TextView, so the type
+     * has to be checked rather than assumed - the pills hand us whatever the
+     * composer's box happens to be.</p>
+     */
+    private static void moveCaretToEnd(TextView box) {
+        try {
+            if (box instanceof EditText) {
+                ((EditText) box).setSelection(box.getText().length());
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
      * Which language to aim the draft at.
      *
-     * <p>Follows the person being written to when that can be worked out, so
-     * talking to several countries needs no switching at all. Falls back to the
-     * configured language for groups, for the number-hiding {@code @lid}
-     * identifiers, and whenever the dialling code is not in the table.</p>
+     * <p>A choice made from the pill in the chat wins, because it is the most
+     * recent thing the user said. Otherwise the person being written to decides,
+     * so talking to several countries needs no switching at all. The configured
+     * language covers groups, the number-hiding {@code @lid} identifiers, and
+     * dialling codes that are not in the table.</p>
      */
-    private static String resolveTarget() {
+    static String effectiveTarget() {
+        String override = ComposerPills.overrideLang();
+        if (override != null && !override.isEmpty()) {
+            return override;
+        }
         if (Prefs.followPeer()) {
             String peerLanguage = ChatContext.peerLanguage();
             if (peerLanguage != null && !peerLanguage.isEmpty()) {
@@ -232,6 +271,10 @@ public final class InputTranslator {
             }
         }
         return Prefs.outLang();
+    }
+
+    private static String resolveTarget() {
+        return effectiveTarget();
     }
 
     /** Success message, naming the peer when one was resolved. */

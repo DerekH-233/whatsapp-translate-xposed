@@ -65,10 +65,22 @@ public final class Translators {
 
     /** Returns translated text, or null. Never throws. */
     public static String translate(String text, String from, String to) {
+        return translate(text, from, to, Prefs.engine());
+    }
+
+    /**
+     * Same, with the engine named explicitly.
+     *
+     * <p>Incoming messages and the outgoing draft can be sent to different
+     * services - they fail differently and cost differently, and a fallback that
+     * suits a chat you are reading is not always the one you want to write
+     * with.</p>
+     */
+    public static String translate(String text, String from, String to, String engineId) {
         if (text == null || text.trim().isEmpty()) {
             return null;
         }
-        Engine engine = Engine.of(Prefs.engine());
+        Engine engine = Engine.of(engineId);
         try {
             switch (engine) {
                 case GOOGLE_GTX:

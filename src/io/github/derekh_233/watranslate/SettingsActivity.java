@@ -18,10 +18,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.graphics.drawable.Drawable;
 import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.Switch;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -29,7 +33,9 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,12 +56,97 @@ public class SettingsActivity extends Activity {
             "灰（默认）", "浅灰", "蓝", "深蓝", "绿", "红", "紫", "黑",
     };
 
+    // WhatsApp's own palette, in both of its themes: the module lives inside
+    // WhatsApp, so borrowing its colours reads as intended rather than as a
+    // theme that missed. The indigo this used to run on was Material Design of
+    // a decade ago, and it showed. Values are set by resolvePalette().
+    private int PAGE;
+    private int SURFACE;
+    private int TEXT;
+    private int MUTED;
+    private int HAIRLINE;
+    private int INACTIVE;
+    private int FIELD;
+    private int RIPPLE;
+    private int ERROR;
+    private int EDGE;
+    private static final int ACCENT = 0xFF00A884;
+    private boolean dark;
+
     private SharedPreferences sp;
     private LinearLayout engineKeyBox;
 
+    private final List<View> tabViews = new ArrayList<View>();
+    private final List<TextView> tabLabels = new ArrayList<TextView>();
+    private final List<View> tabBars = new ArrayList<View>();
+    private final List<String> tabNames = new ArrayList<String>();
+    private LinearLayout tabTranslate;
+    private LinearLayout tabLanguage;
+    private LinearLayout tabAppearance;
+    private LinearLayout tabAbout;
+    private int currentTab;
+
+    /**
+     * Whether to draw dark, from the setting and the system.
+     *
+     * <p>Read straight from the preferences store rather than through Prefs,
+     * because this runs before super.onCreate - the window background is chosen
+     * when the theme is applied, so the theme has to be set first.</p>
+     */
+    private boolean resolveDark() {
+        try {
+            String mode = getApplicationContext()
+                    .getSharedPreferences(Prefs.NAME, MODE_PRIVATE)
+                    .getString(Prefs.KEY_THEME, "system");
+            if ("dark".equals(mode)) {
+                return true;
+            }
+            if ("light".equals(mode)) {
+                return false;
+            }
+            int flags = getApplicationContext().getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return flags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void resolvePalette() {
+        if (dark) {
+            PAGE = 0xFF0B141A;
+            SURFACE = 0xFF1F2C34;
+            TEXT = 0xFFE9EDEF;
+            MUTED = 0xFF8696A0;
+            HAIRLINE = 0xFF2A3942;
+            INACTIVE = 0xFF8696A0;
+            FIELD = 0xFF2A3942;
+            RIPPLE = 0x1FFFFFFF;
+            ERROR = 0xFFF2B8B5;
+            EDGE = 0x33FFFFFF;
+        } else {
+            PAGE = 0xFFF7F8FA;
+            SURFACE = 0xFFFFFFFF;
+            TEXT = 0xFF111B21;
+            MUTED = 0xFF667781;
+            HAIRLINE = 0xFFE9EDEF;
+            INACTIVE = 0xFF8696A0;
+            FIELD = 0xFFF2F5F7;
+            RIPPLE = 0x12000000;
+            ERROR = 0xFFB3261E;
+            EDGE = 0x33000000;
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // No themed ActionBar: a stock one forces its own colours on the top of
+        // the screen and cannot be made to match the rows underneath it.
+        dark = resolveDark();
+        setTheme(dark ? android.R.style.Theme_Material_NoActionBar
+                : android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(savedInstanceState);
+        resolvePalette();
         sp = Prefs.get(this);
         // Connect to the framework so edits reach the hooked process.
         PrefsBridge.start(this);
@@ -64,46 +155,246 @@ public class SettingsActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int p = dp(16);
-        root.setPadding(p, p, p, p);
+        root.setBackgroundColor(PAGE);
+        root.addView(buildTopBar());
 
-        buildHeader(root);
-        buildSwitches(root);
-        buildEngine(root);
-        buildLanguages(root);
-        buildStyle(root);
-        buildLocale(root);
-        buildDebug(root);
+        FrameLayout content = new FrameLayout(this);
+        root.addView(content, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(root);
-        setContentView(scroll);
+        tabTranslate = addTab(content, "翻译");
+        tabLanguage = addTab(content, "语言");
+        tabAppearance = addTab(content, "外观");
+        tabAbout = addTab(content, "关于");
+
+        // Every section is built here, in onCreate, which means one exception
+        // anywhere used to close the whole screen - the app simply refused to
+        // open, with no way in to find out why. Each section now fails on its
+        // own and says so, while the rest of the screen stays usable.
+        final LinearLayout t1 = tabTranslate;
+        final LinearLayout t2 = tabLanguage;
+        final LinearLayout t3 = tabAppearance;
+        final LinearLayout t4 = tabAbout;
+
+        // The engine leads, because it is the one setting nobody can avoid;
+        // language and looks are refinements of it.
+        guarded("介绍", t1, new Runnable() {
+            public void run() {
+                buildHeader(t1);
+            }
+        });
+        guarded("翻译开关", t1, new Runnable() {
+            public void run() {
+                buildSwitches(t1);
+            }
+        });
+        guarded("翻译引擎", t1, new Runnable() {
+            public void run() {
+                buildEngine(t1);
+            }
+        });
+
+        guarded("译文语言", t2, new Runnable() {
+            public void run() {
+                buildLanguages(t2);
+            }
+        });
+        guarded("输入框翻译", t2, new Runnable() {
+            public void run() {
+                buildInputTranslate(t2);
+            }
+        });
+        guarded("对方信息", t2, new Runnable() {
+            public void run() {
+                buildLocale(t2);
+            }
+        });
+
+        guarded("译文外观", t3, new Runnable() {
+            public void run() {
+                buildStyle(t3);
+            }
+        });
+
+        guarded("调试", t4, new Runnable() {
+            public void run() {
+                buildDebug(t4);
+            }
+        });
+        guarded("版本", t4, new Runnable() {
+            public void run() {
+                buildVersion(t4);
+            }
+        });
+
+        root.addView(buildTabBar());
+        setContentView(root);
+        showTab(0);
     }
 
-    // ============================================================= header
+    /**
+     * Build one section, and survive it if it throws.
+     *
+     * <p>The screen is assembled in one pass, so a throw used to reach
+     * onCreate and take the entire activity down: the module could not be
+     * opened at all. Contained here, a broken section shows a line of red text
+     * where it would have been and everything else keeps working.</p>
+     */
+    private void guarded(String label, LinearLayout host, Runnable body) {
+        try {
+            body.run();
+        } catch (Throwable t) {
+            android.util.Log.e("LSTrans", "settings section '" + label + "' failed", t);
+            TextView err = new TextView(this);
+            err.setText("\u300c" + label + "\u300d\u52a0\u8f7d\u5931\u8d25\uff0c"
+                    + "\u5176\u4ed6\u90e8\u5206\u4e0d\u53d7\u5f71\u54cd\u3002");
+            err.setTextSize(13f);
+            err.setTextColor(ERROR);
+            err.setPadding(dp(16), dp(14), dp(16), dp(14));
+            host.addView(err);
+        }
+    }
+
+    /** A scrollable tab page. Rows carry their own insets, so it needs none. */
+    private LinearLayout addTab(FrameLayout host, String name) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout body = column(0, 0, 0, dp(20));
+        scroll.addView(body);
+        scroll.setVisibility(View.GONE);
+        host.addView(scroll);
+        tabNames.add(name);
+        tabViews.add(scroll);
+        return body;
+    }
+
+    /** The app bar, drawn rather than inherited so it can match the rows. */
+    private View buildTopBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setBackgroundColor(SURFACE);
+
+        TextView title = new TextView(this);
+        title.setText("WhatsApp 翻译助手");
+        title.setTextSize(21f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(TEXT);
+        title.setPadding(dp(20), dp(16), dp(20), dp(14));
+        bar.addView(title);
+        bar.addView(hairline());
+        return bar;
+    }
+
+    private View hairline() {
+        View v = new View(this);
+        v.setBackgroundColor(HAIRLINE);
+        v.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
+        return v;
+    }
+
+    /** A plain vertical column with the given padding. */
+    private LinearLayout column(int left, int top, int right, int bottom) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(left, top, right, bottom);
+        return c;
+    }
+
+    private void showTab(int index) {
+        for (int i = 0; i < tabViews.size(); i++) {
+            tabViews.get(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
+            TextView label = tabLabels.get(i);
+            boolean on = i == index;
+            label.setTextColor(on ? ACCENT : INACTIVE);
+            label.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+            View icon = tabBars.get(i);
+            for (Drawable d : new Drawable[]{icon.getBackground()}) {
+                if (d != null) {
+                    d.setTint(on ? ACCENT : INACTIVE);
+                }
+            }
+            if (icon instanceof ImageView) {
+                ((ImageView) icon).setColorFilter(on ? ACCENT : INACTIVE);
+            }
+        }
+        currentTab = index;
+    }
+
+    /**
+     * The bar along the bottom.
+     *
+     * <p>Hand-built from LinearLayout and TextView rather than pulled from
+     * Material Components: this module is compiled straight against android.jar
+     * and bundles no libraries, which is the whole reason the APK is 200KB. A
+     * navigation library would multiply that.</p>
+     */
+    private View buildTabBar() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setBackgroundColor(SURFACE);
+        wrap.addView(hairline());
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setPadding(0, dp(9), 0, dp(9));
+        wrap.addView(bar);
+
+        String[] icons = {"ic_tab_translate", "ic_tab_language",
+                "ic_tab_appearance", "ic_tab_about"};
+
+        for (int i = 0; i < tabNames.size(); i++) {
+            final int index = i;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER);
+            item.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    showTab(index);
+                }
+            });
+
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(drawableId(icons[i]));
+            icon.setLayoutParams(new LinearLayout.LayoutParams(dp(23), dp(23)));
+            tabBars.add(icon);
+            item.addView(icon);
+
+            TextView label = new TextView(this);
+            label.setText(tabNames.get(i));
+            label.setTextSize(11.5f);
+            label.setGravity(Gravity.CENTER);
+            label.setPadding(0, dp(4), 0, 0);
+            tabLabels.add(label);
+            item.addView(label);
+
+            bar.addView(item, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        return wrap;
+    }
 
     private void buildHeader(LinearLayout root) {
-        LinearLayout card = card(root);
+        // A group with no label, so it lines up with every section below it.
+        LinearLayout card = section(root, null);
 
-        // No title in the card: the action bar already names the app, and
-        // printing the same words twice in the first screenful is pure noise.
         TextView sub = new TextView(this);
-        sub.setText("把对方发来的消息翻译成你设定的语言，译文以小字显示在原文下方。\n"
-                + "翻译接口可以选公开的，也可以填自己的 AI 接口。");
-        sub.setTextSize(13.5f);
-        sub.setTextColor(0xFF666666);
+        sub.setText("把对方发来的消息翻译成你设定的语言，译文显示在原文下方。");
+        sub.setTextSize(14f);
+        sub.setTextColor(MUTED);
+        sub.setPadding(dp(16), dp(16), dp(16), dp(4));
         sub.setLineSpacing(dp(4), 1.0f);
         card.addView(sub);
 
         TextView open = new TextView(this);
         open.setText("打开 WhatsApp");
-        open.setTextSize(15f);
+        open.setTextSize(15.5f);
         open.setGravity(Gravity.CENTER);
-        open.setPadding(dp(12), dp(12), dp(12), dp(12));
+        open.setPadding(dp(12), dp(15), dp(12), dp(15));
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setColor(0xFF3F51B5);
+        bg.setCornerRadius(dp(12));
+        bg.setColor(ACCENT);
         open.setBackground(bg);
         open.setTextColor(0xFFFFFFFF);
         open.setOnClickListener(new View.OnClickListener() {
@@ -115,11 +406,15 @@ public class SettingsActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(14);
+        lp.setMargins(dp(16), dp(12), dp(16), dp(16));
         open.setLayoutParams(lp);
         card.addView(open);
+        open.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x33FFFFFF), open.getBackground(),
+                null));
+        open.setClickable(true);
 
-        hint(card, "这里是模块的设置入口，从桌面图标或 LSPosed 模块列表进入都可以。");
+
     }
 
     private void openWhatsApp() {
@@ -140,7 +435,7 @@ public class SettingsActivity extends Activity {
     // =========================================================== switches
 
     private void buildSwitches(LinearLayout root) {
-        section(root, "翻译开关");
+        root = section(root, "翻译开关");
         check(root, "翻译收到的消息", Prefs.KEY_INCOMING_ENABLED, true);
         hint(root, "打开后，收到的消息会在原文下方多出一行小字译文；关掉就只留原文。");
     }
@@ -148,39 +443,43 @@ public class SettingsActivity extends Activity {
     // ============================================================= engine
 
     private void buildEngine(LinearLayout root) {
-        section(root, "翻译引擎");
+        root = section(root, "翻译引擎");
 
-        final Spinner spinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_item, Engine.labels());
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinner.setAdapter(adapter);
-        spinner.setSelection(indexOf(Engine.ids(), Prefs.engine()));
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+        // A Spinner used to live here. It is a stock widget with its own idea of
+        // height, which opened a hole between itself and the rows below, and it
+        // looked nothing like the pickers everywhere else on this screen.
+        final LinearLayout engineRow = valueRow(root, null);
+        final TextView engineValue = valueOf(engineRow);
+        engineValue.setTextColor(MUTED);
+        engineValue.setText(Engine.of(Prefs.engine()).label());
+        engineValue.setMaxLines(1);
+        engineRow.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
-                Map<String, Object> m = new HashMap<String, Object>();
-                m.put(Prefs.KEY_ENGINE, Engine.ids()[pos]);
-                save(m);
-                rebuildEngineKeys(Engine.values()[pos]);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
+            public void onClick(View v) {
+                new AlertDialog.Builder(SettingsActivity.this)
+                        .setTitle("翻译引擎")
+                        .setItems(Engine.labels(), new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                Map<String, Object> m = new HashMap<String, Object>();
+                                m.put(Prefs.KEY_ENGINE, Engine.ids()[which]);
+                                save(m);
+                                engineValue.setText(Engine.labels()[which]);
+                                rebuildEngineKeys(Engine.values()[which]);
+                            }
+                        })
+                        .show();
             }
         });
-        root.addView(spinner);
 
         engineKeyBox = new LinearLayout(this);
         engineKeyBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(engineKeyBox);
         rebuildEngineKeys(Engine.of(Prefs.engine()));
 
-        note(root, "· 前 4 个是公开接口 —— 不用注册、不用密钥，装上就能用，先用这个。\n"
-                + "· 后 4 个要用你自己的账号 —— 百度、DeepL、微软，以及任意 OpenAI 兼容的 AI 接口（DeepSeek 等）。");
+        note(root, "前 4 个免密钥，装上就能用；"
+                + "后 4 个要填自己的账号。");
     }
-
-    // ========================================================= custom AI UI
 
     private static final String[] AI_FORMAT_LABELS = {
             "OpenAI Chat Completions（最通用，默认）",
@@ -194,23 +493,13 @@ public class SettingsActivity extends Activity {
     };
 
     private void aiFormatRow(LinearLayout parent) {
-        TextView label = new TextView(this);
-        label.setText("API 格式（不确定就保持第一个）");
-        label.setTextSize(13f);
-        label.setPadding(0, dp(10), 0, dp(2));
-        parent.addView(label);
-
-        final TextView value = new TextView(this);
-        value.setTextSize(15f);
-        value.setPadding(dp(12), dp(12), dp(12), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), 0x33000000);
-        bg.setColor(0xFFF2F2F2);
-        value.setBackground(bg);
-        value.setTextColor(0xFF222222);
+        final LinearLayout formatRow = valueRow(parent,
+                "API 格式");
+        final TextView value = valueOf(formatRow);
+        value.setTextColor(MUTED);
         value.setText(aiFormatLabel(sp.getString(Prefs.KEY_AI_FORMAT, Translators.AI_CHAT)));
-        value.setOnClickListener(new View.OnClickListener() {
+        formatRow.setBackground(pressed());
+        formatRow.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 new AlertDialog.Builder(SettingsActivity.this)
@@ -227,15 +516,10 @@ public class SettingsActivity extends Activity {
                         .show();
             }
         });
-        parent.addView(value);
 
-        note(parent, "服务端不一样，选错了会返回 404。\n"
-                + "\n"
-                + "· Chat Completions —— POST .../v1/chat/completions，Authorization 鉴权。\n"
-                + "    绝大多数服务和第三方中转站都是这个。\n"
-                + "· Responses —— POST .../v1/responses，OpenAI 的新接口。\n"
-                + "· Anthropic Messages —— POST .../v1/messages，system 是单独的字段，x-api-key 鉴权。\n"
-                + "    DeepSeek 的地址填 https://api.deepseek.com/anthropic");
+        note(parent, "选错了会返回 404。绝大多数服务和中转站用第一个，"
+                + "Claude 那一套用第三个（DeepSeek 的 Claude 地址填 "
+                + "https://api.deepseek.com/anthropic）。");
     }
 
     private String aiFormatLabel(String format) {
@@ -260,13 +544,12 @@ public class SettingsActivity extends Activity {
         btn.setText("拉取模型列表");
         btn.setTextSize(15f);
         btn.setGravity(Gravity.CENTER);
-        btn.setPadding(dp(12), dp(12), dp(12), dp(12));
+        btn.setPadding(dp(18), dp(14), dp(18), dp(14));
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), 0x33000000);
-        bg.setColor(0xFFE8E8E8);
+        bg.setCornerRadius(dp(12));
+        bg.setColor(0x1400A884);
         btn.setBackground(bg);
-        btn.setTextColor(0xFF222222);
+        btn.setTextColor(ACCENT);
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -332,12 +615,8 @@ public class SettingsActivity extends Activity {
         });
         parent.addView(btn);
 
-        note(parent, "向接口要一份「这条 Key 能用的模型」清单，点一个就自动填好。\n"
-                + "\n"
-                + "两种错误容易混淆：\n"
-                + "· 400 / 404 model_not_found —— 模型名打错了。\n"
-                + "· 403 Access to model denied —— 这条 Key 没有该模型的权限，"
-                + "要去中转站后台把它加进令牌允许列表。");
+        note(parent, "点一个就自动填好。403 是这条 Key 没有该模型的权限，"
+                + "要去中转站后台加上才行。");
     }
 
     private static boolean contains(String[] arr, String v) {
@@ -357,7 +636,7 @@ public class SettingsActivity extends Activity {
         btn.setPadding(dp(12), dp(12), dp(12), dp(12));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(8));
-        bg.setColor(0xFF2E7D32);
+        bg.setColor(ACCENT);
         btn.setBackground(bg);
         btn.setTextColor(0xFFFFFFFF);
         btn.setOnClickListener(new View.OnClickListener() {
@@ -387,11 +666,7 @@ public class SettingsActivity extends Activity {
         });
         parent.addView(btn);
 
-        note(parent, "真的发一条 \"Hello\" 过去，把状态码和试过的地址都列出来。\n"
-                + "\n"
-                + "· 404 —— 地址或 API 格式不对\n"
-                + "· 401 —— Key 不对\n"
-                + "· 400 —— 模型名写错");
+        note(parent, "真的发一条 Hello 过去，把状态码和试过的地址列出来：404 地址或格式不对，401 Key 不对，400 模型名写错。");;
     }
 
     private void rebuildEngineKeys(Engine engine) {
@@ -399,7 +674,7 @@ public class SettingsActivity extends Activity {
         switch (engine) {
             case CUSTOM_AI:
                 aiFormatRow(engineKeyBox);
-                edit(engineKeyBox, "接口地址（填到 /v1 为止或填完整路径都行）",
+                edit(engineKeyBox, "接口地址",
                         Prefs.KEY_AI_ENDPOINT, "https://api.deepseek.com");
                 edit(engineKeyBox, "API Key", Prefs.KEY_AI_KEY, "sk-...");
                 edit(engineKeyBox, "模型名", Prefs.KEY_AI_MODEL, "deepseek-flash / gpt-4o-mini");
@@ -425,8 +700,8 @@ public class SettingsActivity extends Activity {
                 TextView tv = new TextView(this);
                 tv.setText("这个引擎不需要配置，直接就能用。");
                 tv.setTextSize(13f);
-                tv.setTextColor(0xFF2E7D32);
-                tv.setPadding(0, dp(8), 0, 0);
+                tv.setTextColor(ACCENT);
+                tv.setPadding(dp(16), dp(10), dp(16), dp(12));
                 engineKeyBox.addView(tv);
                 break;
         }
@@ -435,64 +710,96 @@ public class SettingsActivity extends Activity {
     // ========================================================== languages
 
     private void buildLanguages(LinearLayout root) {
-        section(root, "译文语言");
+        root = section(root, "译文语言");
 
         pickerRow(root, "把消息翻译成", LocaleInfo.labelOf(Prefs.targetLang()) + "（"
                 + Prefs.targetLang() + "）", Prefs.KEY_TARGET_LANG, false);
 
         TextView hint = new TextView(this);
         hint.setTextSize(12f);
-        hint.setTextColor(0xFF888888);
-        hint.setPadding(0, dp(4), 0, dp(6));
+        hint.setTextColor(MUTED);
+        hint.setPadding(dp(16), dp(4), dp(16), dp(12));
         hint.setText("点上面一行打开语言列表，可以直接搜索。共 "
                 + LocaleInfo.allLanguages().size() + " 种语言，中文和英文名都能搜。");
         root.addView(hint);
-
-        buildInputTranslate(root);
     }
 
     // ==================================================== input translate
 
+    // ====================================================== input translate
+
+    /**
+     * Incoming and outgoing translation can use different services.
+     *
+     * <p>They fail differently and cost differently: a public engine is fine for
+     * reading a chat but produces worse prose to send, and a paid model is the
+     * other way round. Keeping them on one setting forced a choice between the
+     * two.</p>
+     */
+    private void outEngineRow(LinearLayout parent) {
+        final LinearLayout r = valueRow(parent, "用哪个引擎");
+        final TextView value = valueOf(r);
+        value.setText(outEngineLabel());
+        value.setTextColor(MUTED);
+        r.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final String[] ids = Engine.ids();
+                final String[] labels = new String[ids.length + 1];
+                labels[0] = "跟随翻译引擎（默认）";
+                System.arraycopy(Engine.labels(), 0, labels, 1, ids.length);
+                new AlertDialog.Builder(SettingsActivity.this)
+                        .setTitle("输入框翻译用哪个引擎")
+                        .setItems(labels, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                Map<String, Object> m = new HashMap<String, Object>();
+                                m.put(Prefs.KEY_OUT_ENGINE, which == 0 ? "" : ids[which - 1]);
+                                save(m);
+                                value.setText(outEngineLabel());
+                            }
+                        })
+                        .show();
+            }
+        });
+    }
+
+    private String outEngineLabel() {
+        String v = sp.getString(Prefs.KEY_OUT_ENGINE, "");
+        if (v == null || v.isEmpty()) {
+            return "跟随翻译引擎";
+        }
+        return Engine.of(v).label();
+    }
+
     private void buildInputTranslate(LinearLayout root) {
-        section(root, "输入框翻译");
+        root = section(root, "输入框翻译");
 
-        check(root, "长按发送键翻译我打的字", Prefs.KEY_INPUT_TRANSLATE_ENABLED, true);
+        check(root, "在输入框上方显示翻译按钮",
+                Prefs.KEY_INPUT_TRANSLATE_ENABLED, true);
 
-        check(root, "目标语言跟随对方（按对方号码自动判断）", Prefs.KEY_FOLLOW_PEER, true);
+        check(root, "跟随对方语言",
+                Prefs.KEY_FOLLOW_PEER, true);
 
-        pickerRow(root, "对方认不出来时翻译成", LocaleInfo.labelOf(Prefs.outLang()) + "（"
-                + Prefs.outLang() + "）", Prefs.KEY_OUT_LANG, false);
+        pickerRow(root, "认不出来时翻译成",
+                LocaleInfo.labelOf(Prefs.outLang()) + "（" + Prefs.outLang() + "）",
+                Prefs.KEY_OUT_LANG, false);
 
-        note(root, "在聊天框里打好字，长按发送键，草稿变成译文；点发送键才发出去。再长按一次还原成原文。\n"
-                + "\n"
-                + "默认跟着对方走：按对方号码的国家代码查表，对方是哪个国家的就用哪种语言，"
-                + "遇到多个国家也不用切来切去。\n"
-                + "群聊、以及对方号码被隐藏的情况判断不出来，就用下面那个语言。\n"
-                + "\n"
-                + "注意方向正好相反：\n"
-                + "· 译文语言 —— 别人的消息翻译成什么语言（收）\n"
-                + "· 输入框翻译 —— 我打的话翻译成什么语言（发）");
+        outEngineRow(root);
+
+        note(root, "打好字点输入框上方的「翻译」，"
+                + "再点发送键才发出去；左上的药丸选语言。\n"
+                + "两个方向正好相反：译文语言管收到的消息，"
+                + "输入框翻译管我打的话。");
     }
 
     private void pickerRow(LinearLayout parent, String title, final String currentLabel,
                            final String key, final boolean areaCode) {
-        TextView tv = new TextView(this);
-        tv.setText(title);
-        tv.setTextSize(13f);
-        tv.setPadding(0, dp(10), 0, dp(2));
-        parent.addView(tv);
-
-        final TextView value = new TextView(this);
+        final LinearLayout r = valueRow(parent, title);
+        final TextView value = valueOf(r);
         value.setText(currentLabel);
-        value.setTextSize(15f);
-        value.setPadding(dp(12), dp(12), dp(12), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), 0x33000000);
-        bg.setColor(0xFFF2F2F2);
-        value.setBackground(bg);
-        value.setTextColor(0xFF222222);
-        value.setOnClickListener(new View.OnClickListener() {
+        value.setTextColor(MUTED);
+        r.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 PickerDialog.OnPick onPick = new PickerDialog.OnPick() {
@@ -513,26 +820,85 @@ public class SettingsActivity extends Activity {
                 }
             }
         });
-        parent.addView(value);
     }
 
-    // ============================================================== style
+    private String themeLabel() {
+        String mode = sp.getString(Prefs.KEY_THEME, "system");
+        if ("dark".equals(mode)) {
+            return "深色";
+        }
+        if ("light".equals(mode)) {
+            return "浅色";
+        }
+        return "跟随系统";
+    }
+
+    private void themeRow(LinearLayout root) {
+        final LinearLayout r = valueRow(root, "主题");
+        final TextView value = valueOf(r);
+        value.setTextColor(MUTED);
+        value.setText(themeLabel());
+        r.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final String[] mode = {"system", "light", "dark"};
+                new AlertDialog.Builder(SettingsActivity.this)
+                        .setTitle("主题")
+                        .setItems(new String[]{"跟随系统", "浅色", "深色"},
+                                new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int which) {
+                                        Map<String, Object> m = new HashMap<String, Object>();
+                                        m.put(Prefs.KEY_THEME, mode[which]);
+                                        save(m);
+                                        // The theme is applied when the window is
+                                        // created, so it takes a rebuild to show.
+                                        recreate();
+                                    }
+                                })
+                        .show();
+            }
+        });
+    }
 
     private void buildStyle(LinearLayout root) {
-        section(root, "译文外观");
+        root = section(root, "译文外观");
 
-        final TextView colorPreview = new TextView(this);
+        themeRow(root);
+
         final int[] currentColor = {Prefs.translationColor()};
-        colorPreview.setText("译文颜色");
-        colorPreview.setTextSize(15f);
-        colorPreview.setGravity(Gravity.CENTER);
-        colorPreview.setPadding(dp(10), dp(14), dp(10), dp(14));
-        paintColor(colorPreview, currentColor[0]);
-        colorPreview.setOnClickListener(new View.OnClickListener() {
+
+        // Flooding a full-width bar with the colour made the loudest thing on
+        // the screen out of a setting most people never touch. It is a button
+        // now, the same one the debug tab uses, with the colour as a dot beside
+        // the words - still a preview, no longer a shout.
+        LinearLayout colorBtn = new LinearLayout(this);
+        colorBtn.setOrientation(LinearLayout.HORIZONTAL);
+        colorBtn.setGravity(Gravity.CENTER);
+        colorBtn.setPadding(dp(18), dp(14), dp(18), dp(14));
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setCornerRadius(dp(12));
+        cBg.setColor(0x1400A884);
+        colorBtn.setBackground(cBg);
+
+        TextView colorLabel = new TextView(this);
+        colorLabel.setText("\u8bd1\u6587\u989c\u8272");
+        colorLabel.setTextSize(15f);
+        colorLabel.setTextColor(ACCENT);
+        colorBtn.addView(colorLabel);
+
+        final View swatchDot = new View(this);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        dlp.leftMargin = dp(10);
+        colorBtn.addView(swatchDot, dlp);
+        paintDot(swatchDot, currentColor[0]);
+
+        colorBtn.setClickable(true);
+        colorBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 new AlertDialog.Builder(SettingsActivity.this)
-                        .setTitle("选择译文颜色")
+                        .setTitle("\u9009\u62e9\u8bd1\u6587\u989c\u8272")
                         .setItems(COLOR_NAMES, new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface d, int which) {
@@ -540,13 +906,17 @@ public class SettingsActivity extends Activity {
                                 Map<String, Object> m = new HashMap<String, Object>();
                                 m.put(Prefs.KEY_TRANSLATION_COLOR, currentColor[0]);
                                 save(m);
-                                paintColor(colorPreview, currentColor[0]);
+                                paintDot(swatchDot, currentColor[0]);
                             }
                         })
                         .show();
             }
         });
-        root.addView(colorPreview);
+        LinearLayout.LayoutParams cbp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbp.setMargins(dp(16), dp(4), dp(16), dp(4));
+        root.addView(colorBtn, cbp);
+
         hint(root, "译文是原文下面的小字，点上面的色块换颜色。");
 
         note(root, "改动会自动重画屏幕上已有的消息，一般不用做什么。\n"
@@ -584,49 +954,60 @@ public class SettingsActivity extends Activity {
     // ============================================================= locale
 
     private void buildLocale(LinearLayout root) {
-        section(root, "对方信息");
+        root = section(root, "对方信息");
 
-        TextView cur = new TextView(this);
-        cur.setTextSize(14f);
-        cur.setPadding(0, dp(4), 0, dp(8));
-        StringBuilder sb = new StringBuilder("当前设置：我的区号 +" + Prefs.myRegion());
-        LocaleInfo.Info mine = LocaleInfo.forPhone(Prefs.myRegion());
-        if (mine != null) {
-            sb.append(" · ").append(LocaleInfo.describe(mine));
+        note(root, "打开会话时按对方号码离线查表，"
+                + "得出对方的语言，全在本地完成。\n"
+                + "群聊和隐藏号码判断不出来，"
+                + "用输入框翻译里选的语言。");
+    }
+
+    private void buildVersion(LinearLayout root) {
+        root = section(root, "版本");
+
+        String version = "?";
+        long code = 0;
+        try {
+            android.content.pm.PackageInfo info =
+                    getPackageManager().getPackageInfo(getPackageName(), 0);
+            version = info.versionName;
+            code = info.getLongVersionCode();
+        } catch (Throwable ignored) {
         }
-        cur.setText(sb.toString());
-        root.addView(cur);
-
-        pickerRow(root, "我的国家/地区（用于判断对方是否与我在同一地区）",
-                "+" + Prefs.myRegion(), Prefs.KEY_MY_REGION, true);
-
-        note(root, "按对方号码的国家代码离线查表，查表过程不发网络请求。\n"
-                + "覆盖 " + LocaleInfo.allAreaCodes().size() + " 个区号，含语言、货币和当地时区。");
+        hint(root, "WhatsApp 翻译助手 " + version + "（" + code + "）\n"
+                + "包名 " + getPackageName());
     }
 
     // ============================================================== debug
 
     private void buildDebug(LinearLayout root) {
-        section(root, "调试");
-        check(root, "输出详细日志（Xposed 日志搜 LSTrans）", Prefs.KEY_DEBUG_LOG, true);
+        root = section(root, "调试");
+        check(root, "输出详细日志", Prefs.KEY_DEBUG_LOG, true);
 
-        Button test = new Button(this);
-        test.setText("测试当前引擎");
-        test.setOnClickListener(new View.OnClickListener() {
+        final TextView btn = new TextView(this);
+        btn.setText("测试当前引擎");
+        btn.setTextSize(15f);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(dp(18), dp(14), dp(18), dp(14));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(12));
+        bg.setColor(0x1400A884);
+        btn.setBackground(bg);
+        btn.setTextColor(ACCENT);
+        btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 testEngine();
             }
         });
-        root.addView(test);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.setMargins(dp(16), dp(4), dp(16), dp(14));
+        root.addView(btn, bp);
 
-        TextView note = new TextView(this);
-        note.setTextSize(12f);
-        note.setTextColor(0xFF777777);
-        note.setPadding(0, dp(14), 0, 0);
-        note.setText("译文没出现时，去 Xposed 日志里搜 LSTrans：请求用的端点、HTTP 状态码、"
-                + "接口返回的内容都会记下来，方便看出是接口挂了还是配置写错了。");
-        root.addView(note);
+        note(root, "译文没出现时，去 Xposed 日志"
+                + "搜 LSTrans，里面有请求地址和"
+                + "接口返回的内容。");
     }
 
     private void testEngine() {
@@ -731,45 +1112,115 @@ public class SettingsActivity extends Activity {
         c.setPadding(p, p, p, p);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), 0x22000000);
         bg.setColor(Color.WHITE);
         c.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(14);
         c.setLayoutParams(lp);
         parent.addView(c);
         return c;
     }
 
-    private void section(LinearLayout parent, String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(13f);
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setTextColor(0xFF3F51B5);
-        tv.setPadding(0, dp(24), 0, dp(8));
-        parent.addView(tv);
+    /** The line between two rows in a group, inset like Android's own lists. */
+    private void addRow(LinearLayout group, View row) {
+        if (group.getChildCount() > 0) {
+            View d = new View(this);
+            d.setBackgroundColor(HAIRLINE);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+            lp.leftMargin = dp(16);
+            group.addView(d, lp);
+        }
+        group.addView(row);
+    }
 
-        // A hairline under each heading: headings alone do not group anything
-        // when the rows below them are the same weight as everything else.
-        View rule = new View(this);
-        rule.setBackgroundColor(0x14000000);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
-        rule.setLayoutParams(lp);
-        parent.addView(rule);
+    private Drawable pressed() {
+        return new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(RIPPLE), null, null);
+    }
+
+    /** A row: label on the left, whatever the caller adds on the right. */
+    private LinearLayout row(LinearLayout group, String label) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setMinimumHeight(dp(54));
+        r.setPadding(dp(16), dp(10), dp(16), dp(10));
+        if (label != null) {
+            TextView t = new TextView(this);
+            t.setText(label);
+            t.setTextSize(15.5f);
+            t.setTextColor(TEXT);
+            t.setLayoutParams(new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            r.addView(t);
+        }
+        addRow(group, r);
+        return r;
+    }
+
+    /**
+     * Look a drawable up by name.
+     *
+     * <p>The generated R class is not usable here: aapt2 link runs after javac
+     * in this build, so R does not exist at the moment the sources are compiled.
+     * The lookup happens once per view, which costs nothing.</p>
+     */
+    private int drawableId(String name) {
+        return getResources().getIdentifier(name, "drawable", getPackageName());
+    }
+
+    private View chevron() {
+        ImageView v = new ImageView(this);
+        v.setImageResource(drawableId("ic_chevron"));
+        v.setColorFilter(INACTIVE);
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(18), dp(18)));
+        return v;
+    }
+
+    /**
+     * Opens a section and hands back the block its rows belong in.
+     *
+     * <p>Was a blue heading plus a hairline, and that grouped nothing: the rows
+     * underneath carried the same weight as everything else on the page, so the
+     * screen read as one uninterrupted strip however many rules were drawn
+     * across it. A card per group draws the edges a heading can only imply.</p>
+     */
+    private LinearLayout section(LinearLayout parent, String title) {
+        if (title != null) {
+            TextView label = new TextView(this);
+            label.setText(title);
+            label.setTextSize(13.5f);
+            label.setTextColor(MUTED);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setPadding(dp(32), dp(20), dp(32), dp(8));
+            parent.addView(label);
+        }
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        bg.setColor(SURFACE);
+        group.setBackground(bg);
+        group.setClipToOutline(true);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        glp.leftMargin = dp(16);
+        glp.rightMargin = dp(16);
+        if (title == null) {
+            // Every other group gets its top gap from the label above it. With no
+            // label, nothing supplies one and the card ends up flush against the
+            // app bar.
+            glp.topMargin = dp(18);
+        }
+        parent.addView(group, glp);
+        return group;
     }
 
     /** One line of clarification, tucked directly under the control it belongs to. */
     private void hint(LinearLayout parent, String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(12f);
-        tv.setTextColor(0xFF8A8A8A);
-        tv.setLineSpacing(dp(3), 1.0f);
-        tv.setPadding(0, dp(6), 0, dp(2));
-        parent.addView(tv);
+        noteRow(parent, text, false);
     }
 
     /**
@@ -781,32 +1232,33 @@ public class SettingsActivity extends Activity {
      * same.</p>
      */
     private void note(LinearLayout parent, String text) {
+        noteRow(parent, text, true);
+    }
+
+    /**
+     * Explanation inside a group.
+     *
+     * <p>It used to sit in its own grey box, which meant a box inside a card
+     * inside a page - three levels of container for one paragraph. Plain text
+     * between two hairlines carries the same weight without the nesting.</p>
+     */
+    private void noteRow(LinearLayout parent, String text, boolean roomy) {
         TextView tv = new TextView(this);
         tv.setText(text);
-        tv.setTextSize(12.5f);
-        tv.setTextColor(0xFF5A5A5A);
+        tv.setTextSize(13f);
+        tv.setTextColor(MUTED);
         tv.setLineSpacing(dp(4), 1.0f);
-        int pad = dp(12);
-        tv.setPadding(pad, pad, pad, pad);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setColor(0xFFF4F5F7);
-        tv.setBackground(bg);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(8);
-        tv.setLayoutParams(lp);
-        parent.addView(tv);
+        tv.setPadding(dp(16), roomy ? dp(13) : dp(8), dp(16), dp(13));
+        addRow(parent, tv);
     }
 
     private void check(LinearLayout parent, String label, final String key, boolean def) {
-        CheckBox cb = new CheckBox(this);
-        cb.setText(label);
-        cb.setTextSize(15f);
-        cb.setChecked(sp.getBoolean(key, def));
-        cb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+        LinearLayout r = row(parent, label);
+        Switch sw = new Switch(this);
+        sw.setChecked(sp.getBoolean(key, def));
+        sw.setThumbTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        sw.setTrackTintList(android.content.res.ColorStateList.valueOf(0x5500A884));
+        sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton b, boolean isChecked) {
                 Map<String, Object> m = new HashMap<String, Object>();
@@ -814,7 +1266,7 @@ public class SettingsActivity extends Activity {
                 save(m);
             }
         });
-        parent.addView(cb);
+        r.addView(sw);
     }
 
     private void edit(LinearLayout parent, String label, final String key, String hintText) {
@@ -826,7 +1278,7 @@ public class SettingsActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(label);
         tv.setTextSize(13f);
-        tv.setPadding(0, dp(10), 0, dp(2));
+        tv.setPadding(dp(16), dp(12), dp(16), dp(4));
         parent.addView(tv);
 
         EditText et = new EditText(this);
@@ -856,14 +1308,74 @@ public class SettingsActivity extends Activity {
                 save(m);
             }
         });
-        parent.addView(et, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // A filled field instead of the platform's underlined one, which looked
+        // like a form from a decade ago next to the rest of the screen.
+        GradientDrawable field = new GradientDrawable();
+        field.setCornerRadius(dp(10));
+        field.setColor(FIELD);
+        et.setBackground(field);
+        et.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ep.leftMargin = dp(16);
+        ep.rightMargin = dp(16);
+        ep.bottomMargin = dp(4);
+        parent.addView(et, ep);
+    }
+
+    /**
+     * Turns a stacked label+control into one row, so pickers line up.
+     *
+     * <p>The label keeps its natural width and the value takes what is left,
+     * right aligned and ellipsised. The opposite - a flexible label beside a
+     * natural-width value - let a long value squeeze the label to nothing, and
+     * the row then read as a stray line of text with no clue what it was: the
+     * "API format" row lost its own name to the string "OpenAI Chat
+     * Completions (most common)".</p>
+     */
+    private LinearLayout valueRow(LinearLayout parent, String title) {
+        LinearLayout r = row(parent, title);
+        // row() gives the label weight so a switch lands hard right; a picker
+        // wants it back at its natural width instead.
+        if (title != null && r.getChildCount() > 0) {
+            View label = r.getChildAt(0);
+            label.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        TextView value = new TextView(this);
+        value.setTextSize(14f);
+        value.setGravity(Gravity.END);
+        value.setMaxLines(1);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        value.setPadding(0, 0, dp(6), 0);
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        vp.leftMargin = dp(12);
+        r.addView(value, vp);
+        r.addView(chevron());
+        r.setBackground(pressed());
+        value.setTag("value");
+        return r;
+    }
+
+    private TextView valueOf(LinearLayout r) {
+        return (TextView) r.findViewWithTag("value");
+    }
+
+    /** A round colour chip, with a hairline edge so pale colours stay visible. */
+    private void paintDot(View v, int color) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(color);
+        bg.setStroke(dp(1), EDGE);
+        v.setBackground(bg);
     }
 
     private void paintColor(TextView tv, int color) {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), 0x33000000);
+        bg.setStroke(dp(1), EDGE);
         bg.setColor(color);
         tv.setBackground(bg);
         boolean dark = (Color.red(color) + Color.green(color) + Color.blue(color)) < 380;

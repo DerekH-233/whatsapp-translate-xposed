@@ -40,6 +40,12 @@ public final class Prefs {
     /** Aim the outgoing language at whoever the chat is with. */
     public static final String KEY_FOLLOW_PEER = "follow_peer";
 
+    /** "system", "light" or "dark" - which palette the settings screen draws in. */
+    public static final String KEY_THEME = "theme";
+
+    /** Engine used for the outgoing draft; empty means "the same as incoming". */
+    public static final String KEY_OUT_ENGINE = "out_engine";
+
     public static final String KEY_AI_ENDPOINT = "ai_endpoint";
     public static final String KEY_AI_KEY = "ai_key";
     public static final String KEY_AI_MODEL = "ai_model";
@@ -188,6 +194,17 @@ public final class Prefs {
      */
     public static boolean followPeer() {
         return readBoolean(KEY_FOLLOW_PEER, true);
+    }
+
+    /**
+     * Engine for the outgoing draft, falling back to the incoming one.
+     *
+     * <p>Empty means "follow {@link #engine()}", which is what an existing
+     * install gets and what most people want.</p>
+     */
+    public static String outEngine() {
+        String v = readString(KEY_OUT_ENGINE, "");
+        return v == null || v.isEmpty() ? engine() : v;
     }
 
     public static String aiEndpoint() {

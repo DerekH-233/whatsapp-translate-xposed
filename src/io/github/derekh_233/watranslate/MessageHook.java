@@ -74,6 +74,7 @@ public final class MessageHook {
     private static volatile String APPLIED_STYLE;
     private static volatile List<Integer> replyIds = Collections.emptyList();
     private static volatile List<Integer> quoteIds = Collections.emptyList();
+    private static volatile List<Integer> inputIds = Collections.emptyList();
 
     private MessageHook() {
     }
@@ -237,6 +238,7 @@ public final class MessageHook {
     private static void resolveIdsFromLoader(ClassLoader loader, String pkg) {
         List<Integer> reply = new ArrayList<Integer>();
         List<Integer> quote = new ArrayList<Integer>();
+        List<Integer> input = new ArrayList<Integer>();
 
         for (String cls : new String[]{pkg + ".R$id", "com.whatsapp.R$id",
                 "com.whatsapp.w4b.R$id"}) {
@@ -255,6 +257,8 @@ public final class MessageHook {
                         reply.add(val);
                     } else if (name.contains("quoted") && name.contains("text")) {
                         quote.add(val);
+                    } else if ("entry".equals(name) || "text_entry".equals(name)) {
+                        input.add(val);
                     }
                 }
                 Logger.d("R$id read from " + cls);
@@ -272,6 +276,7 @@ public final class MessageHook {
 
         replyIds = Collections.unmodifiableList(dedup(reply));
         quoteIds = Collections.unmodifiableList(dedup(quote));
+        inputIds = Collections.unmodifiableList(dedup(input));
     }
 
     /**
@@ -296,6 +301,7 @@ public final class MessageHook {
                 String pkg = ctx.getPackageName();
                 List<Integer> reply = new ArrayList<Integer>(replyIds);
                 List<Integer> quote = new ArrayList<Integer>(quoteIds);
+                List<Integer> input = new ArrayList<Integer>(inputIds);
                 int id = res.getIdentifier("message_text", "id", pkg);
                 if (id != 0) {
                     reply.add(id);
@@ -308,10 +314,19 @@ public final class MessageHook {
                 if (id != 0) {
                     quote.add(id);
                 }
+                id = res.getIdentifier("entry", "id", pkg);
+                if (id != 0) {
+                    input.add(id);
+                }
+                id = res.getIdentifier("text_entry", "id", pkg);
+                if (id != 0) {
+                    input.add(id);
+                }
                 replyIds = Collections.unmodifiableList(dedup(reply));
                 quoteIds = Collections.unmodifiableList(dedup(quote));
+                inputIds = Collections.unmodifiableList(dedup(input));
                 Logger.d("resource lookup in " + pkg + " -> replyIds=" + replyIds
-                        + " quoteIds=" + quoteIds);
+                        + " quoteIds=" + quoteIds + " inputIds=" + inputIds);
             } catch (Throwable t) {
                 Logger.d("resource lookup skipped: " + t);
             }
@@ -335,10 +350,15 @@ public final class MessageHook {
     // ------------------------------------------------------------- pipeline
 
     private static void onSetText(TextView tv) {
+        ensureIdsFromView(tv);
+        if (inputIds.contains(tv.getId())) {
+            // The chat box, not a message: put the pills above it.
+            ComposerPills.ensure(tv);
+            return;
+        }
         if (!Prefs.incomingEnabled()) {
             return;
         }
-        ensureIdsFromView(tv);
         if (!isTargetId(tv.getId())) {
             return;
         }

@@ -115,8 +115,18 @@ if ($LASTEXITCODE -ne 0) { throw 'javac app failed' }
 #    with lambdas, and without desugaring they stay as invokedynamic, which
 #    fails at runtime with NoSuchMethodError on LambdaMetafactory.metafactory.
 Say 'd8'
-$appCls = Get-ChildItem -Path $clsApp -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& $D8 --min-api 29 --output $dexDir --lib $PLAT @appCls $lxSvc $lxIface
+# One jar, not one argument per class file. This source is mostly anonymous inner
+# classes, and the resulting path list eventually overran the Windows command
+# line limit - d8 failed with "The command line is too long" rather than anything
+# that pointed at the code.
+$appJar = Join-Path $out 'app-classes.jar'
+if (Test-Path $appJar) { Remove-Item $appJar -Force }
+# A zip is a jar. Get-Command jar on this machine resolves to jarsigner, which
+# has no -C, so pack it with .NET instead of guessing at shims.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($clsApp, $appJar)
+if (-not (Test-Path $appJar)) { throw 'packing app classes failed' }
+& $D8 --min-api 29 --output $dexDir --lib $PLAT $appJar $lxSvc $lxIface
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 Get-ChildItem $dexDir | ForEach-Object { Say "  dex: $($_.Name) $($_.Length) bytes" }
 
